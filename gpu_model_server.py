@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -12,6 +12,8 @@ from typing import Optional, List, Dict, Any, Tuple
 import os
 import re
 import uuid
+import json
+import asyncio
 
 # 字体设置
 FONT_PATH = "SimSun.ttf"
@@ -179,19 +181,15 @@ def save_boxed_image(image, boxes):
         return None
         
     try:
+        # 如果图像是RGBA模式，转换为RGB模式
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+            
         # 绘制边界框
         print(f"准备绘制边界框到图像上，图像类型: {type(image)}, 图像尺寸: {image.size}")
         boxed_image = draw_boxes_on_image(image.copy(), boxes)
         
-        # 尝试保存到绝对路径
-        try:
-            absolute_path = "D:/AI-DEV/design-helper/debug_box_image.jpg"
-            print(f"尝试保存到绝对路径: {absolute_path}")
-            boxed_image.save(absolute_path)
-            print(f"成功保存到绝对路径: {absolute_path}")
-        except Exception as e:
-            print(f"保存到绝对路径失败: {e}")
-        
+        # 生成保存路径
         # 确保目录存在并有写权限
         if not os.path.exists(BOX_IMAGE_DIR):
             try:
@@ -268,6 +266,27 @@ class ImageChatRequest(BaseModel):
 class KnowledgeRequest(BaseModel):
     topic: str
     query: str
+
+# 活跃的WebSocket连接管理类
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def send_message(self, websocket: WebSocket, message: str):
+        await websocket.send_text(message)
+
+    async def send_json(self, websocket: WebSocket, data: dict):
+        await websocket.send_json(data)
+
+# 初始化连接管理器
+manager = ConnectionManager()
 
 @app.get("/")
 async def root():
@@ -360,6 +379,10 @@ async def analyze_image(request: ImageChatRequest):
         image_data = base64.b64decode(request.image_base64)
         image = Image.open(io.BytesIO(image_data))
         
+        # 保存临时图像文件前，检查并转换RGBA模式
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+            
         # 保存临时图像文件
         image.save(temp_img_path)
         print(f"临时图像已保存到: {temp_img_path}")
@@ -510,6 +533,115 @@ async def refresh_knowledge_base():
 async def get_topics():
     """获取所有话题"""
     return {"topics": list(knowledge_base.keys())}
+
+# WebSocket通信处理文本聊天
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # 接收客户端消息
+            data = await websocket.receive_text()
+            request_data = json.loads(data)
+            
+            # 验证消息格式
+            if "messages" not in request_data:
+                await manager.send_json(websocket, {"error": "请求格式错误，缺少messages字段"})
+                continue
+                
+            # 处理对话历史
+            messages = request_data["messages"]
+            query = tokenizer.from_list_format(messages)
+            
+            # 流式生成回复
+            await manager.send_json(websocket, {"status": "processing", "message": "开始生成回复..."})
+            
+            response = model.chat(tokenizer, query=query, history=None)
+            
+            # 发送结果
+            await manager.send_json(websocket, {
+                "status": "complete",
+                "result": response
+            })
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        # 发送错误信息
+        try:
+            await manager.send_json(websocket, {"status": "error", "message": str(e)})
+        except:
+            pass
+        # 断开连接
+        manager.disconnect(websocket)
+
+# WebSocket通信处理图像分析
+@app.websocket("/ws/analyze")
+async def websocket_analyze(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # 接收客户端消息
+            data = await websocket.receive_text()
+            request_data = json.loads(data)
+            
+            # 验证消息格式
+            if "image_base64" not in request_data or "query" not in request_data:
+                await manager.send_json(websocket, {"error": "请求格式错误，缺少image_base64或query字段"})
+                continue
+            
+            # 通知客户端开始处理
+            await manager.send_json(websocket, {"status": "processing", "message": "正在处理图像..."})
+            
+            # 解码图像
+            try:
+                image_data = base64.b64decode(request_data["image_base64"])
+                image = Image.open(io.BytesIO(image_data))
+                await manager.send_json(websocket, {"status": "processing", "message": "图像解码成功..."})
+            except Exception as e:
+                await manager.send_json(websocket, {"status": "error", "message": f"图像解码失败: {str(e)}"})
+                continue
+            
+            # 准备响应
+            query = request_data["query"]
+            query_with_image = tokenizer.from_list_format([
+                {"image": image},
+                {"text": query}
+            ])
+            
+            # 通知客户端模型开始处理
+            await manager.send_json(websocket, {"status": "processing", "message": "模型正在分析图像..."})
+            
+            # 调用模型
+            response, history = model.chat(tokenizer, query=query_with_image, history=None)
+            
+            # 解析边界框（如果有）
+            boxes = parse_boxes_from_text(response)
+            
+            # 如果有边界框，保存标注后的图像
+            boxed_image_url = None
+            if boxes:
+                await manager.send_json(websocket, {"status": "processing", "message": "正在生成边界框标注..."})
+                # 保存带边界框的图像
+                boxed_image_url = save_boxed_image(image, boxes)
+            
+            # 发送最终结果
+            await manager.send_json(websocket, {
+                "status": "complete",
+                "result": response,
+                "boxed_image_url": boxed_image_url
+            })
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        # 发送错误信息
+        try:
+            await manager.send_json(websocket, {"status": "error", "message": str(e)})
+        except:
+            pass
+        # 断开连接
+        manager.disconnect(websocket)
 
 if __name__ == "__main__":
     import uvicorn
