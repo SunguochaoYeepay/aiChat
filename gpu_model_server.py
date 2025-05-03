@@ -14,6 +14,7 @@ import re
 import uuid
 import json
 import asyncio
+from app.prompt_manager import prompt_manager
 
 # 字体设置
 FONT_PATH = "SimSun.ttf"
@@ -336,22 +337,61 @@ async def chat_completions(request: ChatRequest):
                     assistant_msg = request.messages[i+1]["content"]
                     history.append((user_msg, assistant_msg))
         
-        # 确保使用GPU
-        if torch.cuda.is_available():
-            print(f"推理使用设备: {device} - 当前CUDA内存使用: {torch.cuda.memory_allocated() / 1024 / 1024 / 1024:.2f} GB")
+        # 使用提示词管理器检查查询是否与设计相关
+        is_design_query = prompt_manager.is_design_query(user_query)
+        kb_response = None
+        
+        if is_design_query:
+            print(f"检测到设计相关查询: {user_query}")
             
-        # 使用新的推荐语法
-        with torch.amp.autocast(device_type='cuda', enabled=device=="cuda"):  # 在GPU上启用自动混合精度
-            # 确认模型在GPU上
-            first_param_device = next(model.parameters()).device
-            print(f"模型实际设备: {first_param_device}")
+            # 使用提示词管理器找到最合适的主题
+            topics = list(knowledge_base.keys())
+            best_topic = prompt_manager.find_best_topic(user_query, topics)
+            print(f"选择知识库主题: {best_topic}")
             
-            # 调用模型，强制走GPU
-            response, _ = model.chat(
-                tokenizer=tokenizer,
-                query=user_query,
-                history=history
-            )
+            # 获取知识库内容
+            content = knowledge_base.get(best_topic, "")
+            
+            if content:
+                # 使用提示词管理器构建提示词
+                kb_prompt = prompt_manager.build_prompt("chat", user_query, content, best_topic)
+                print(f"使用知识库内容构建提示")
+                
+                # 确保使用GPU
+                if torch.cuda.is_available():
+                    print(f"知识库搜索推理使用设备: {device} - 当前CUDA内存使用: {torch.cuda.memory_allocated() / 1024 / 1024 / 1024:.2f} GB")
+                
+                # 使用知识库内容调用模型
+                with torch.amp.autocast(device_type='cuda', enabled=device=="cuda"):
+                    kb_response, _ = model.chat(
+                        tokenizer=tokenizer,
+                        query=kb_prompt,
+                        history=history
+                    )
+                print(f"知识库响应: {kb_response[:100]}...")
+        
+        # 如果知识库有响应，直接使用；否则使用普通查询
+        response = kb_response if kb_response else None
+        
+        # 如果知识库没有响应，使用常规方法
+        if not response:
+            # 确保使用GPU
+            if torch.cuda.is_available():
+                print(f"推理使用设备: {device} - 当前CUDA内存使用: {torch.cuda.memory_allocated() / 1024 / 1024 / 1024:.2f} GB")
+                
+            # 使用新的推荐语法
+            with torch.amp.autocast(device_type='cuda', enabled=device=="cuda"):  # 在GPU上启用自动混合精度
+                # 确认模型在GPU上
+                first_param_device = next(model.parameters()).device
+                print(f"模型实际设备: {first_param_device}")
+                
+                # 调用模型，强制走GPU
+                query = prompt_manager.build_prompt("chat", user_query)
+                response, _ = model.chat(
+                    tokenizer=tokenizer,
+                    query=query,
+                    history=history
+                )
         
         process_time = time.time() - start_time
         print(f"处理时间: {process_time:.2f}秒")
@@ -384,7 +424,7 @@ async def analyze_image(request: ImageChatRequest):
         # 处理图片列表
         for i, img_base64 in enumerate(image_base64_list):
             # 为每张图片创建唯一的临时文件名
-            temp_img_path = f"temp_image_{i}_{uuid.uuid4()}.jpg"
+            temp_img_path = f"temp_image_{i+1}_{uuid.uuid4()}.jpg"
             temp_img_paths.append(temp_img_path)
             
             # 解码和保存图片
@@ -402,9 +442,47 @@ async def analyze_image(request: ImageChatRequest):
             # 添加到查询中
             image_query_parts.append(f"<img>{temp_img_path}</img>")
         
-        # 构建完整查询 - 所有图片标签后跟问题文本
-        query = request.query
-        image_query = "".join(image_query_parts) + query
+        # 原始用户查询
+        user_query = request.query
+        
+        # 使用提示词管理器判断是否与设计相关
+        is_design_query = prompt_manager.is_design_query(user_query)
+        
+        # 如果是设计相关查询，添加知识库内容
+        kb_content = ""
+        if is_design_query:
+            print(f"检测到设计相关图像查询: {user_query}")
+            
+            # 使用提示词管理器找到最合适的主题
+            topics = list(knowledge_base.keys())
+            best_topic = prompt_manager.find_best_topic(user_query, topics)
+            print(f"图像分析选择知识库主题: {best_topic}")
+            
+            # 获取知识库内容
+            content = knowledge_base.get(best_topic, "")
+            
+            if content:
+                # 使用提示词管理器构建提示词
+                if "符合" in user_query or "标准" in user_query or "规范" in user_query:
+                    kb_content = prompt_manager.build_prompt("image_analysis", user_query, content, best_topic)
+                    if "design_evaluation" in prompt_manager.templates.get("image_analysis", {}):
+                        kb_content = prompt_manager.get_template("image_analysis", "design_evaluation").format(
+                            content=content, query=user_query
+                        )
+                else:
+                    kb_content = prompt_manager.build_prompt("image_analysis", user_query, content, best_topic)
+                
+                print(f"图像分析使用知识库内容构建提示")
+        
+        # 构建完整查询
+        # 如果有知识库内容，将其添加到查询前
+        if kb_content:
+            image_query = "".join(image_query_parts) + kb_content
+        else:
+            # 使用提示词管理器构建通用图像分析提示词
+            general_prompt = prompt_manager.build_prompt("image_analysis", user_query)
+            image_query = "".join(image_query_parts) + general_prompt
+            
         print(f"构建的图像查询: {image_query}")
         
         start_time = time.time()
@@ -523,13 +601,8 @@ async def search_knowledge_base(request: KnowledgeRequest):
         # 获取话题内容
         content = knowledge_base[request.topic]
         
-        # 构建模型提示
-        prompt = f"""以下是关于"{request.topic}"的设计规范文档:
-        
-{content}
-
-请根据上述设计规范，回答用户的问题: {request.query}
-"""
+        # 使用提示词管理器构建提示词
+        prompt = prompt_manager.build_prompt("search", request.query, content, request.topic)
 
         # 确保使用GPU
         if torch.cuda.is_available():
@@ -565,6 +638,39 @@ async def refresh_knowledge_base():
     try:
         result = load_knowledge_base()
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 新增：提示词模板管理API
+@app.get("/prompt_templates")
+async def get_prompt_templates():
+    """获取所有提示词模板"""
+    try:
+        return prompt_manager.templates
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/prompt_templates")
+async def update_prompt_templates(templates: Dict[str, Any]):
+    """更新提示词模板"""
+    try:
+        success = prompt_manager.save_templates(templates)
+        if success:
+            return {"status": "成功", "message": "提示词模板已更新"}
+        else:
+            raise HTTPException(status_code=500, detail="保存提示词模板失败")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/refresh_templates")
+async def refresh_templates():
+    """刷新提示词模板"""
+    try:
+        success = prompt_manager.refresh_templates()
+        if success:
+            return {"status": "成功", "message": "提示词模板已刷新", "templates": prompt_manager.templates}
+        else:
+            raise HTTPException(status_code=500, detail="刷新提示词模板失败")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -646,7 +752,7 @@ async def websocket_analyze(websocket: WebSocket):
                         image = Image.open(io.BytesIO(image_data))
                         
                         # 生成唯一临时文件名
-                        temp_img_path = f"temp_image_{i}_{uuid.uuid4()}.jpg"
+                        temp_img_path = f"temp_image_{i+1}_{uuid.uuid4()}.jpg"
                         temp_img_paths.append(temp_img_path)
                         
                         # 保存临时图像
@@ -665,10 +771,50 @@ async def websocket_analyze(websocket: WebSocket):
                 
                 await manager.send_json(websocket, {"status": "processing", "message": f"成功处理{len(images)}张图像..."})
                 
-                # 构建图像查询
-                query = request_data["query"]
+                # 用户原始查询
+                user_query = request_data["query"]
+                
+                # 使用提示词管理器判断是否与设计相关
+                is_design_query = prompt_manager.is_design_query(user_query)
+                
+                # 准备图像查询
                 image_query_parts = [f"<img>{path}</img>" for path in temp_img_paths]
-                image_query = "".join(image_query_parts) + query
+                
+                # 如果是设计相关查询，添加知识库内容
+                kb_content = ""
+                if is_design_query:
+                    print(f"WebSocket检测到设计相关图像查询: {user_query}")
+                    await manager.send_json(websocket, {"status": "processing", "message": "正在查询设计规范..."})
+                    
+                    # 使用提示词管理器找到最合适的主题
+                    topics = list(knowledge_base.keys())
+                    best_topic = prompt_manager.find_best_topic(user_query, topics)
+                    print(f"WebSocket图像分析选择知识库主题: {best_topic}")
+                    
+                    # 获取知识库内容
+                    content = knowledge_base.get(best_topic, "")
+                    
+                    if content:
+                        # 使用提示词管理器构建提示词
+                        if "符合" in user_query or "标准" in user_query or "规范" in user_query:
+                            kb_content = prompt_manager.build_prompt("image_analysis", user_query, content, best_topic)
+                            if "design_evaluation" in prompt_manager.templates.get("image_analysis", {}):
+                                kb_content = prompt_manager.get_template("image_analysis", "design_evaluation").format(
+                                    content=content, query=user_query
+                                )
+                        else:
+                            kb_content = prompt_manager.build_prompt("image_analysis", user_query, content, best_topic)
+                        
+                        print(f"WebSocket图像分析使用知识库内容构建提示")
+                
+                # 构建完整查询
+                # 如果有知识库内容，将其添加到查询前
+                if kb_content:
+                    image_query = "".join(image_query_parts) + kb_content
+                else:
+                    # 使用提示词管理器构建通用图像分析提示词
+                    general_prompt = prompt_manager.build_prompt("image_analysis", user_query)
+                    image_query = "".join(image_query_parts) + general_prompt
                 
                 # 通知客户端模型开始处理
                 await manager.send_json(websocket, {"status": "processing", "message": "模型正在分析图像..."})

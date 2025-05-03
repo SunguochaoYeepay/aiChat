@@ -1,0 +1,22 @@
+{
+    "chat": {
+        "knowledge_base": "以下是关于\"{topic}\"的设计规范文档:\n\n{content}\n\n请根据上述设计规范，回答用户的问题: {query}",
+        "general": "请回答用户的问题: {query}"
+    },
+    "image_analysis": {
+        "knowledge_base": "以下是关于\"{topic}\"的设计规范文档:\n\n{content}\n\n请根据上述设计规范，分析图像并回答: {query}",
+        "general": "请分析图像并回答: {query}",
+        "design_evaluation": "请根据以下设计规范，评估图像中的设计是否符合要求:\n\n{content}\n\n用户问题: {query}"
+    },
+    "search": {
+        "knowledge_base": "以下是关于\"{topic}\"的设计规范文档:\n\n{content}\n\n请根据上述设计规范，回答用户的问题: {query}"
+    },
+    "topic_matching": {
+        "score_weights": {
+            "default": 1,
+            "导航_宽度_个人中心": 5,
+            "登录_登录页": 5,
+            "符合_标准_规范_设计规范": 3
+        }
+    }
+} 
