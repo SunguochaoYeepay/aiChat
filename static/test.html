@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qwen-VL-Chat 测试页面</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #1890ff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #40a9ff;
+        }
+        #imagePreview {
+            max-width: 100%;
+            margin-top: 10px;
+            border: 1px dashed #ddd;
+            display: none;
+        }
+        #chatResult, #analyzeResult {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            border: 1px solid #eee;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            display: none;
+        }
+        .api-url {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <h1>Qwen-VL-Chat 测试页面</h1>
+    <div class="api-url">
+        API服务地址: <span id="apiBaseUrl">http://localhost:8000</span>
+        <button id="changeApiBtn" style="width: auto; padding: 2px 10px; margin-left: 10px;">修改</button>
+    </div>
+    
+    <div class="container">
+        <!-- 左侧面板：文本聊天 -->
+        <div class="panel">
+            <h2>文本聊天</h2>
+            <div class="form-group">
+                <label for="chatQuestion">问题：</label>
+                <textarea id="chatQuestion" rows="3" placeholder="请输入您的问题...">介绍一下自己的功能</textarea>
+            </div>
+            <button id="chatBtn">发送</button>
+            <div id="chatLoading" class="loading">思考中...</div>
+            <div id="chatResult"></div>
+        </div>
+        
+        <!-- 右侧面板：图片分析 -->
+        <div class="panel">
+            <h2>图片分析</h2>
+            <div class="form-group">
+                <label for="analyzeImage">上传图片：</label>
+                <input type="file" id="analyzeImage" accept="image/*">
+                <img id="imagePreview" src="#" alt="预览">
+            </div>
+            <div class="form-group">
+                <label for="analyzeQuestion">问题：</label>
+                <textarea id="analyzeQuestion" rows="3" placeholder="请输入您的问题...">这张图片中有什么内容？</textarea>
+            </div>
+            <button id="analyzeBtn">分析</button>
+            <div id="analyzeLoading" class="loading">图像分析中，请耐心等待...</div>
+            <div id="analyzeResult"></div>
+        </div>
+    </div>
+
+    <script>
+        // 允许修改API地址
+        document.getElementById('changeApiBtn').addEventListener('click', function() {
+            const newUrl = prompt("请输入新的API地址:", document.getElementById('apiBaseUrl').textContent);
+            if (newUrl) {
+                document.getElementById('apiBaseUrl').textContent = newUrl;
+            }
+        });
+
+        // 获取当前API地址
+        function getApiBaseUrl() {
+            return document.getElementById('apiBaseUrl').textContent;
+        }
+
+        // 图片预览功能
+        document.getElementById('analyzeImage').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const img = document.getElementById('imagePreview');
+                    img.src = event.target.result;
+                    img.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 文本聊天
+        document.getElementById('chatBtn').addEventListener('click', function() {
+            const question = document.getElementById('chatQuestion').value;
+            
+            if (!question.trim()) {
+                alert('请输入问题');
+                return;
+            }
+            
+            document.getElementById('chatLoading').style.display = 'block';
+            document.getElementById('chatResult').textContent = '';
+            
+            fetch(`${getApiBaseUrl()}/v1/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    messages: [
+                        {"role": "user", "content": question}
+                    ]
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('chatLoading').style.display = 'none';
+                if (data.choices && data.choices.length > 0) {
+                    document.getElementById('chatResult').textContent = data.choices[0].message.content;
+                } else {
+                    document.getElementById('chatResult').textContent = "未能获取到有效回复";
+                }
+            })
+            .catch(error => {
+                document.getElementById('chatLoading').style.display = 'none';
+                document.getElementById('chatResult').textContent = '错误：' + error;
+            });
+        });
+
+        // 图片分析
+        document.getElementById('analyzeBtn').addEventListener('click', function() {
+            const question = document.getElementById('analyzeQuestion').value;
+            const fileInput = document.getElementById('analyzeImage');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('请选择一张图片');
+                return;
+            }
+            
+            if (!question.trim()) {
+                alert('请输入问题');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = function(event) {
+                // 获取 base64 编码（去掉开头的 data:image/...;base64,）
+                const base64Image = event.target.result.split(',')[1];
+                
+                document.getElementById('analyzeLoading').style.display = 'block';
+                document.getElementById('analyzeResult').textContent = '';
+                
+                fetch(`${getApiBaseUrl()}/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        image_base64: base64Image,
+                        query: question
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('analyzeLoading').style.display = 'none';
+                    document.getElementById('analyzeResult').textContent = data.result;
+                })
+                .catch(error => {
+                    document.getElementById('analyzeLoading').style.display = 'none';
+                    document.getElementById('analyzeResult').textContent = '错误：' + error;
+                });
+            };
+            
+            reader.readAsDataURL(file);
+        });
+    </script>
+</body>
+</html> 

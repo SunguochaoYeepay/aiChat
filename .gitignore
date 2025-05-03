@@ -26,9 +26,13 @@ ENV/
 env/
 new_env/
 qwen-env/
+offload/
 
 # 日志
 *.log
+*_log.txt
+test_output*.txt
+test_debug.txt
 
 # 临时文件
 temp_image.jpg
@@ -40,6 +44,7 @@ static/box_images/*
 
 # 测试图像
 test_image.jpg
+test_images/
 
 # IDE
 .idea/
@@ -63,4 +68,8 @@ models/
 Qwen-VL/
 
 # 其他大型目录
-node_modules/ 
+node_modules/
+
+# 多余的启动脚本
+start_server.bat
+# 保留start_gpu.bat和run_gpu_server.bat 

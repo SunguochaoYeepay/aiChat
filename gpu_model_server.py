@@ -67,12 +67,17 @@ tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 model_load_start = time.time()
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    device_map="auto",  # 自动选择最佳设备
     trust_remote_code=True,
     torch_dtype=torch.float16,  # GPU上使用半精度
     low_cpu_mem_usage=True,
     use_cache=True
-).eval()
+)
+
+# 确保模型在GPU上
+if torch.cuda.is_available():
+    model = model.to("cuda")
+    
+model = model.eval()
 
 model_load_time = time.time() - model_load_start
 print(f"模型加载完成! 耗时: {model_load_time:.2f}秒")

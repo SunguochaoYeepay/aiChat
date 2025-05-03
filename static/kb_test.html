@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库检索测试</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #1890ff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #40a9ff;
+        }
+        #searchResult {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            border: 1px solid #eee;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            display: none;
+        }
+        .topic-list {
+            margin-bottom: 20px;
+        }
+        .topic-item {
+            display: inline-block;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .topic-item:hover {
+            background-color: #e0e0e0;
+        }
+        .topic-item.active {
+            background-color: #1890ff;
+            color: white;
+        }
+        .api-url {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #888;
+        }
+        .action-btn {
+            display: inline-block;
+            padding: 5px 15px;
+            margin-right: 10px;
+            background-color: #52c41a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .action-btn:hover {
+            background-color: #73d13d;
+        }
+    </style>
+</head>
+<body>
+    <h1>知识库检索测试</h1>
+    <div class="api-url">
+        API服务地址: <span id="apiBaseUrl">http://localhost:8000</span>
+        <button id="changeApiBtn" style="width: auto; padding: 2px 10px; margin-left: 10px;">修改</button>
+    </div>
+    
+    <div class="container">
+        <div class="form-group">
+            <button id="refreshKbBtn" class="action-btn">刷新知识库</button>
+            <button id="listTopicsBtn" class="action-btn">列出所有话题</button>
+        </div>
+        
+        <div id="topicList" class="topic-list"></div>
+        
+        <div class="form-group">
+            <label for="topicInput">话题：</label>
+            <input type="text" id="topicInput" placeholder="请输入话题名称">
+        </div>
+        
+        <div class="form-group">
+            <label for="questionInput">问题：</label>
+            <textarea id="questionInput" rows="3" placeholder="请输入您的问题...">请介绍一下基本布局的要求</textarea>
+        </div>
+        
+        <button id="searchBtn">搜索</button>
+        <div id="loading" class="loading">处理中...</div>
+        <div id="searchResult"></div>
+    </div>
+
+    <script>
+        // 允许修改API地址
+        document.getElementById('changeApiBtn').addEventListener('click', function() {
+            const newUrl = prompt("请输入新的API地址:", document.getElementById('apiBaseUrl').textContent);
+            if (newUrl) {
+                document.getElementById('apiBaseUrl').textContent = newUrl;
+            }
+        });
+
+        // 获取当前API地址
+        function getApiBaseUrl() {
+            return document.getElementById('apiBaseUrl').textContent;
+        }
+
+        // 刷新知识库
+        document.getElementById('refreshKbBtn').addEventListener('click', function() {
+            document.getElementById('loading').style.display = 'block';
+            
+            fetch(`${getApiBaseUrl()}/refresh_kb`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchResult').textContent = JSON.stringify(data, null, 2);
+                
+                // 刷新后更新话题列表
+                loadTopics();
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchResult').textContent = '错误：' + error;
+            });
+        });
+
+        // 列出所有话题
+        function loadTopics() {
+            document.getElementById('loading').style.display = 'block';
+            
+            fetch(`${getApiBaseUrl()}/topics`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                
+                const topicList = document.getElementById('topicList');
+                topicList.innerHTML = '';
+                
+                data.topics.forEach(topic => {
+                    const topicItem = document.createElement('div');
+                    topicItem.className = 'topic-item';
+                    topicItem.textContent = topic;
+                    topicItem.addEventListener('click', function() {
+                        document.getElementById('topicInput').value = topic;
+                    });
+                    topicList.appendChild(topicItem);
+                });
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchResult').textContent = '错误：' + error;
+            });
+        }
+
+        document.getElementById('listTopicsBtn').addEventListener('click', loadTopics);
+
+        // 知识库搜索
+        document.getElementById('searchBtn').addEventListener('click', function() {
+            const topic = document.getElementById('topicInput').value;
+            const question = document.getElementById('questionInput').value;
+            
+            if (!topic.trim()) {
+                alert('请输入话题');
+                return;
+            }
+            
+            if (!question.trim()) {
+                alert('请输入问题');
+                return;
+            }
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('searchResult').textContent = '';
+            
+            fetch(`${getApiBaseUrl()}/search`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    topic: topic,
+                    query: question
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchResult').textContent = data.result;
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchResult').textContent = '错误：' + error;
+            });
+        });
+
+        // 页面加载时获取话题列表
+        window.addEventListener('load', loadTopics);
+    </script>
+</body>
+</html> 
