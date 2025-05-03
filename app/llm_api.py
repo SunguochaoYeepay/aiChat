@@ -1,6 +1,6 @@
 import requests
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Union, List
 import os
 import sys
 
@@ -16,11 +16,11 @@ class QwenAPI:
         if QWEN_API_KEY:
             self.headers["Authorization"] = f"Bearer {QWEN_API_KEY}"
 
-    def analyze_image(self, topic: str, image_base64: str, question: str) -> str:
-        """分析图片并回答问题"""
+    def analyze_image(self, topic: str, image_base64: Union[str, List[str]], question: str) -> str:
+        """分析图片并回答问题，支持单张或多张图片"""
         # 构建请求数据
         data = {
-            "image_base64": image_base64,
+            "image_base64": image_base64,  # 直接传递，后端会处理单张或多张
             "query": f"请分析这张{topic}的图片，并回答以下问题：{question}"
         }
 

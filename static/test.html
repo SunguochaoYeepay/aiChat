@@ -323,9 +323,20 @@
                     document.getElementById('analyzeLoading').style.display = 'none';
                     document.getElementById('analyzeStatus').style.display = 'none';
                     
-                    // 如果有边界框图像，显示
-                    if (data.boxed_image_url) {
-                        const resultDiv = document.getElementById('analyzeResult');
+                    const resultDiv = document.getElementById('analyzeResult');
+                    
+                    // 多图片支持 - 显示所有带边界框的图片
+                    if (data.boxed_image_urls && data.boxed_image_urls.length > 0) {
+                        resultDiv.innerHTML += '<br><br><h3>边界框标注结果:</h3>';
+                        for (let i = 0; i < data.boxed_image_urls.length; i++) {
+                            resultDiv.innerHTML += `<div class="boxed-image">
+                                <p>图片 ${i+1} 标注结果:</p>
+                                <img src="${data.boxed_image_urls[i]}" style="max-width: 100%; margin-bottom: 20px;" />
+                            </div>`;
+                        }
+                    } 
+                    // 兼容单图片模式
+                    else if (data.boxed_image_url) {
                         resultDiv.innerHTML += `<br><br><img src="${data.boxed_image_url}" style="max-width: 100%;" />`;
                     }
                 }

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import time
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 import os
 import re
 import uuid
@@ -260,7 +260,7 @@ class ChatRequest(BaseModel):
     messages: List[dict]
 
 class ImageChatRequest(BaseModel):
-    image_base64: str
+    image_base64: Union[str, List[str]]  # 支持单张图片或图片列表
     query: str
 
 class KnowledgeRequest(BaseModel):
@@ -372,24 +372,39 @@ async def chat_completions(request: ChatRequest):
 
 @app.post("/analyze")
 async def analyze_image(request: ImageChatRequest):
-    """图片分析 API"""
-    temp_img_path = "temp_image.jpg"
+    """图片分析 API - 支持多图片"""
+    temp_img_paths = []
     try:
-        # 解码 base64 图片
-        image_data = base64.b64decode(request.image_base64)
-        image = Image.open(io.BytesIO(image_data))
+        # 构建图像查询字符串
+        image_query_parts = []
         
-        # 保存临时图像文件前，检查并转换RGBA模式
-        if image.mode == 'RGBA':
-            image = image.convert('RGB')
+        # 检查是单张图片还是多张图片
+        image_base64_list = request.image_base64 if isinstance(request.image_base64, list) else [request.image_base64]
+        
+        # 处理图片列表
+        for i, img_base64 in enumerate(image_base64_list):
+            # 为每张图片创建唯一的临时文件名
+            temp_img_path = f"temp_image_{i}_{uuid.uuid4()}.jpg"
+            temp_img_paths.append(temp_img_path)
             
-        # 保存临时图像文件
-        image.save(temp_img_path)
-        print(f"临时图像已保存到: {temp_img_path}")
+            # 解码和保存图片
+            image_data = base64.b64decode(img_base64)
+            image = Image.open(io.BytesIO(image_data))
+            
+            # 保存临时图像文件前，检查并转换RGBA模式
+            if image.mode == 'RGBA':
+                image = image.convert('RGB')
+                
+            # 保存临时图像文件
+            image.save(temp_img_path)
+            print(f"临时图像{i+1}已保存到: {temp_img_path}")
+            
+            # 添加到查询中
+            image_query_parts.append(f"<img>{temp_img_path}</img>")
         
-        # 构建查询 - 使用Qwen-VL官方格式
+        # 构建完整查询 - 所有图片标签后跟问题文本
         query = request.query
-        image_query = f"<img>{temp_img_path}</img>{query}"
+        image_query = "".join(image_query_parts) + query
         print(f"构建的图像查询: {image_query}")
         
         start_time = time.time()
@@ -427,19 +442,40 @@ async def analyze_image(request: ImageChatRequest):
         boxes = parse_boxes_from_text(response)
         if boxes:
             print(f"检测到边界框: {boxes}")
-            # 保存带边界框的图像
+            # 为每张图片保存边界框标注
             try:
-                image_copy = image.copy()  # 创建图像副本防止原图被修改
-                boxed_image_url = save_boxed_image(image_copy, boxes)
+                boxed_image_urls = []
+                boxed_image_full_urls = []
                 
-                # 如果有边界框图像URL，添加到结果中
-                if boxed_image_url:
-                    print(f"添加边界框图像URL到结果: {boxed_image_url}")
-                    result["boxed_image_url"] = boxed_image_url
-                    # 添加完整的访问URL
-                    result["boxed_image_full_url"] = f"http://localhost:8000{boxed_image_url}"
+                # 处理每张原始图片
+                for i, temp_path in enumerate(temp_img_paths):
+                    try:
+                        # 打开图片
+                        image = Image.open(temp_path)
+                        # 保存带边界框的图像
+                        boxed_image_url = save_boxed_image(image, boxes)
+                        
+                        # 如果有边界框图像URL，添加到结果中
+                        if boxed_image_url:
+                            print(f"添加第{i+1}张图片的边界框图像URL: {boxed_image_url}")
+                            boxed_image_urls.append(boxed_image_url)
+                            # 添加完整的访问URL
+                            full_url = f"http://localhost:8000{boxed_image_url}"
+                            boxed_image_full_urls.append(full_url)
+                    except Exception as e:
+                        print(f"处理第{i+1}张图片边界框时出错: {str(e)}")
+                
+                # 添加到响应中
+                if boxed_image_urls:
+                    result["boxed_image_urls"] = boxed_image_urls
+                    result["boxed_image_full_urls"] = boxed_image_full_urls
+                    
+                    # 保留单张图片的兼容性
+                    if len(boxed_image_urls) > 0:
+                        result["boxed_image_url"] = boxed_image_urls[0]
+                        result["boxed_image_full_url"] = boxed_image_full_urls[0]
                 else:
-                    print("生成边界框图像失败，不添加URL")
+                    print("为所有图片生成边界框图像失败，不添加URL")
             except Exception as e:
                 import traceback
                 print(f"处理边界框图像时出错: {str(e)}")
@@ -449,13 +485,15 @@ async def analyze_image(request: ImageChatRequest):
         else:
             print("响应中没有检测到边界框")
         
-        # 处理完成后删除临时文件
-        if os.path.exists(temp_img_path):
-            os.remove(temp_img_path)
-            print("临时图像文件已删除")
+        # 处理完成后删除所有临时文件
+        for temp_path in temp_img_paths:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                print(f"临时图像文件已删除: {temp_path}")
             
         print(f"最终返回结果: {result}")
         return result
+    
     except Exception as e:
         error_msg = str(e)
         print(f"图片分析错误: {error_msg}")
@@ -466,9 +504,10 @@ async def analyze_image(request: ImageChatRequest):
         print(f"详细错误信息:\n{traceback_str}")
         
         # 确保发生错误时也删除临时文件
-        if os.path.exists(temp_img_path):
-            os.remove(temp_img_path)
-            print("错误后临时图像文件已删除")
+        for temp_path in temp_img_paths:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                print(f"错误后临时图像文件已删除: {temp_path}")
             
         raise HTTPException(status_code=500, detail=error_msg)
 
@@ -589,48 +628,96 @@ async def websocket_analyze(websocket: WebSocket):
             if "image_base64" not in request_data or "query" not in request_data:
                 await manager.send_json(websocket, {"error": "请求格式错误，缺少image_base64或query字段"})
                 continue
+                
+            # 支持单张或多张图片
+            image_base64_list = request_data["image_base64"] if isinstance(request_data["image_base64"], list) else [request_data["image_base64"]]
+            temp_img_paths = []
+            images = []
             
             # 通知客户端开始处理
             await manager.send_json(websocket, {"status": "processing", "message": "正在处理图像..."})
             
-            # 解码图像
             try:
-                image_data = base64.b64decode(request_data["image_base64"])
-                image = Image.open(io.BytesIO(image_data))
-                await manager.send_json(websocket, {"status": "processing", "message": "图像解码成功..."})
+                # 为每张图片创建临时文件
+                for i, img_base64 in enumerate(image_base64_list):
+                    # 解码图像
+                    try:
+                        image_data = base64.b64decode(img_base64)
+                        image = Image.open(io.BytesIO(image_data))
+                        
+                        # 生成唯一临时文件名
+                        temp_img_path = f"temp_image_{i}_{uuid.uuid4()}.jpg"
+                        temp_img_paths.append(temp_img_path)
+                        
+                        # 保存临时图像
+                        if image.mode == 'RGBA':
+                            image = image.convert('RGB')
+                        image.save(temp_img_path)
+                        
+                        images.append(image)
+                    except Exception as e:
+                        await manager.send_json(websocket, {"status": "error", "message": f"图像{i+1}解码失败: {str(e)}"})
+                        # 清理已创建的临时文件
+                        for path in temp_img_paths:
+                            if os.path.exists(path):
+                                os.remove(path)
+                        return
+                
+                await manager.send_json(websocket, {"status": "processing", "message": f"成功处理{len(images)}张图像..."})
+                
+                # 构建图像查询
+                query = request_data["query"]
+                image_query_parts = [f"<img>{path}</img>" for path in temp_img_paths]
+                image_query = "".join(image_query_parts) + query
+                
+                # 通知客户端模型开始处理
+                await manager.send_json(websocket, {"status": "processing", "message": "模型正在分析图像..."})
+                
+                # 调用模型
+                response, _ = model.chat(tokenizer, query=image_query, history=None)
+                
+                # 解析边界框（如果有）
+                boxes = parse_boxes_from_text(response)
+                
+                # 处理边界框
+                boxed_image_urls = []
+                if boxes:
+                    await manager.send_json(websocket, {"status": "processing", "message": "正在生成边界框标注..."})
+                    
+                    # 为每张图片保存带边界框的图像
+                    for i, image in enumerate(images):
+                        try:
+                            boxed_image_url = save_boxed_image(image, boxes)
+                            if boxed_image_url:
+                                boxed_image_urls.append(boxed_image_url)
+                        except Exception as e:
+                            print(f"为图像{i+1}保存边界框时出错: {e}")
+                
+                # 清理临时文件
+                for path in temp_img_paths:
+                    if os.path.exists(path):
+                        os.remove(path)
+                
+                # 发送最终结果
+                await manager.send_json(websocket, {
+                    "status": "complete",
+                    "result": response,
+                    "boxed_image_urls": boxed_image_urls,
+                    # 保持兼容性
+                    "boxed_image_url": boxed_image_urls[0] if boxed_image_urls else None
+                })
+                
             except Exception as e:
-                await manager.send_json(websocket, {"status": "error", "message": f"图像解码失败: {str(e)}"})
-                continue
-            
-            # 准备响应
-            query = request_data["query"]
-            query_with_image = tokenizer.from_list_format([
-                {"image": image},
-                {"text": query}
-            ])
-            
-            # 通知客户端模型开始处理
-            await manager.send_json(websocket, {"status": "processing", "message": "模型正在分析图像..."})
-            
-            # 调用模型
-            response, history = model.chat(tokenizer, query=query_with_image, history=None)
-            
-            # 解析边界框（如果有）
-            boxes = parse_boxes_from_text(response)
-            
-            # 如果有边界框，保存标注后的图像
-            boxed_image_url = None
-            if boxes:
-                await manager.send_json(websocket, {"status": "processing", "message": "正在生成边界框标注..."})
-                # 保存带边界框的图像
-                boxed_image_url = save_boxed_image(image, boxes)
-            
-            # 发送最终结果
-            await manager.send_json(websocket, {
-                "status": "complete",
-                "result": response,
-                "boxed_image_url": boxed_image_url
-            })
+                # 确保清理临时文件
+                for path in temp_img_paths:
+                    if os.path.exists(path):
+                        os.remove(path)
+                        
+                # 发送错误信息
+                import traceback
+                error_detail = traceback.format_exc()
+                print(f"WebSocket图像分析错误: {str(e)}\n{error_detail}")
+                await manager.send_json(websocket, {"status": "error", "message": f"处理失败: {str(e)}"})
             
     except WebSocketDisconnect:
         manager.disconnect(websocket)

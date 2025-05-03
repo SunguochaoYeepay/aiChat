@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import base64
 import os
 import sys
@@ -61,7 +61,7 @@ async def read_root():
 
 class AnalyzeRequest(BaseModel):
     topic: str
-    image_base64: str
+    image_base64: Union[str, List[str]]  # 支持单张图片或图片列表
     question: str
 
 class SearchRequest(BaseModel):
@@ -122,6 +122,30 @@ async def websocket_analyze(websocket: WebSocket):
                 })
                 continue
             
+            # 图片可以是单张或多张
+            if not isinstance(request_data["image_base64"], (str, list)):
+                await manager.send_json(websocket, {
+                    "status": "error", 
+                    "message": "image_base64必须是字符串或字符串列表"
+                })
+                continue
+                
+            # 如果是列表，检查是否为空或包含非字符串元素
+            if isinstance(request_data["image_base64"], list):
+                if not request_data["image_base64"]:
+                    await manager.send_json(websocket, {
+                        "status": "error", 
+                        "message": "image_base64列表不能为空"
+                    })
+                    continue
+                
+                if not all(isinstance(img, str) for img in request_data["image_base64"]):
+                    await manager.send_json(websocket, {
+                        "status": "error", 
+                        "message": "image_base64列表中必须全为字符串"
+                    })
+                    continue
+            
             # 发送处理状态
             await manager.send_json(websocket, {
                 "status": "processing", 
@@ -147,7 +171,10 @@ async def websocket_analyze(websocket: WebSocket):
                 # 发送结果
                 await manager.send_json(websocket, {
                     "status": "complete",
-                    "result": analysis
+                    "result": analysis,
+                    # 如果API返回的分析结果是字典且包含边界框图像URLs，则一并返回
+                    "boxed_image_urls": analysis.get("boxed_image_urls") if isinstance(analysis, dict) and "boxed_image_urls" in analysis else None,
+                    "boxed_image_url": analysis.get("boxed_image_url") if isinstance(analysis, dict) and "boxed_image_url" in analysis else None
                 })
                 
             except Exception as e:
