@@ -6,10 +6,15 @@
 import os
 import time
 import torch
+import logging
 from django.conf import settings
 from pathlib import Path
 
 from .wrappers.model_wrapper import ModelWrapper
+
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # 全局变量
 model = None
@@ -17,8 +22,11 @@ tokenizer = None
 model_wrapper = None
 model_load_time = None
 model_config = None
+_is_loading = False  # 新增标志，防止并发加载
 
-
+# 用于同步的锁对象
+import threading
+_model_lock = threading.Lock()
 
 def init_model(model_path=None, device=None, precision=None):
     """
@@ -32,99 +40,119 @@ def init_model(model_path=None, device=None, precision=None):
     Returns:
         dict: 包含加载状态和时间的字典
     """
-    global model, tokenizer, model_wrapper, model_load_time, model_config
+    global model, tokenizer, model_wrapper, model_load_time, model_config, _is_loading
     
-    # 如果没有提供配置，则使用默认值或从数据库获取
-    if not model_path:
-        from management.models import ModelConfig
-        try:
-            active_config = ModelConfig.objects.get(is_active=True)
-            model_path = active_config.model_path
-            device = active_config.device
-            precision = active_config.precision
-            model_config = active_config
-        except ModelConfig.DoesNotExist:
-            # 使用默认值
-            model_path = getattr(settings, 'DEFAULT_MODEL_PATH', 'D:/AI-DEV/models/Qwen-VL-Chat-Int4')
-            device = getattr(settings, 'DEFAULT_DEVICE', 'cuda')
-            precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
-    
-    try:
-        # 记录加载开始时间
-        load_start = time.time()
-        
-        # 创建模型包装器实例
-        model_wrapper = ModelWrapper(model_path, device, precision)
-        
-        # 加载模型
-        if model_wrapper.load():
-            # 设置全局变量
-            model = model_wrapper.model
-            tokenizer = model_wrapper.tokenizer
-            
-            # 计算加载时间
-            model_load_time = time.time() - load_start
-            
+    # 使用锁确保并发安全
+    with _model_lock:
+        # 如果正在加载中，则返回
+        if _is_loading:
             return {
-                'status': 'success',
-                'message': f'模型加载成功，耗时: {model_load_time:.2f}秒',
-                'model_path': model_path,
-                'device': device,
-                'precision': precision
+                'status': 'loading',
+                'message': '模型正在加载中，请稍候'
+            }
+            
+        _is_loading = True
+        
+        try:
+            # 如果没有提供配置，则使用默认值或从数据库获取
+            if not model_path:
+                from management.models import ModelConfig
+                try:
+                    active_config = ModelConfig.objects.get(is_active=True)
+                    model_path = active_config.model_path
+                    device = active_config.device
+                    precision = active_config.precision
+                    model_config = active_config
+                except ModelConfig.DoesNotExist:
+                    # 使用默认值
+                    model_path = getattr(settings, 'DEFAULT_MODEL_PATH', 'D:/AI-DEV/models/Qwen-VL-Chat-Int4')
+                    device = getattr(settings, 'DEFAULT_DEVICE', 'cuda')
+                    precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
+                    
+            logger.info(f"开始加载模型: {model_path}")
+            logger.info(f"设备: {device}, 精度: {precision}")
+            
+            # 记录加载开始时间
+            load_start = time.time()
+            
+            # 创建模型包装器实例
+            model_wrapper = ModelWrapper(model_path, device, precision)
+            
+            # 加载模型
+            if model_wrapper.load():
+                # 设置全局变量
+                model = model_wrapper.model
+                tokenizer = model_wrapper.tokenizer
+                
+                # 计算加载时间
+                model_load_time = time.time() - load_start
+                
+                logger.info(f"模型加载成功，耗时: {model_load_time:.2f}秒")
+                
+                # 测试模型是否可用
+                test_result = test_model()
+                if not test_result['success']:
+                    logger.error(f"模型加载成功但测试失败: {test_result['message']}")
+                    return {
+                        'status': 'error',
+                        'message': f'模型加载成功但测试失败: {test_result["message"]}'
+                    }
+                
+                return {
+                    'status': 'success',
+                    'message': f'模型加载成功，耗时: {model_load_time:.2f}秒',
+                    'model_path': model_path,
+                    'device': device,
+                    'precision': precision
+                }
+            else:
+                logger.error("模型加载失败")
+                return {
+                    'status': 'error',
+                    'message': '模型加载失败，请查看日志获取详细信息'
+                }
+        except Exception as e:
+            logger.exception(f"模型加载异常: {str(e)}")
+            return {
+                'status': 'error',
+                'message': f'模型加载失败: {str(e)}'
+            }
+        finally:
+            _is_loading = False
+
+def test_model():
+    """
+    简单测试模型是否可用
+    
+    Returns:
+        dict: 测试结果
+    """
+    global model, tokenizer
+    
+    if model is None or tokenizer is None:
+        return {
+            'success': False,
+            'message': '模型或分词器为空'
+        }
+        
+    try:
+        # 简单的模型测试，尝试生成一个短文本
+        result, _ = model.chat(tokenizer, "你好", history=[])
+        
+        if result and isinstance(result, str):
+            return {
+                'success': True,
+                'message': '模型测试成功'
             }
         else:
             return {
-                'status': 'error',
-                'message': '模型加载失败，请查看日志获取详细信息'
+                'success': False,
+                'message': f'模型返回了意外的结果类型: {type(result)}'
             }
     except Exception as e:
         return {
-            'status': 'error',
-            'message': f'模型加载失败: {str(e)}'
-        }
-        
-        # 检查GPU可用性
-        if device == 'cuda' and not torch.cuda.is_available():
-            device = 'cpu'
-            print("警告: GPU不可用，将使用CPU模式")
-        
-        # 确定torch数据类型
-        torch_dtype = torch.float16 if precision == 'float16' else torch.float32
-        
-        # 加载tokenizer
-        print(f"正在加载模型 {model_path}...")
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        
-        # 加载模型
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            trust_remote_code=True,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=True,
-            use_cache=True
-        )
-        
-        # 将模型移至指定设备
-        if device == 'cuda':
-            model = model.to(device)
-        
-        # 将模型设置为评估模式
-        model = model.eval()
-        
-        # 计算加载时间
-        model_load_time = time.time() - load_start
-        
-        return {
-            'status': 'success',
-            'message': f'模型加载成功，耗时: {model_load_time:.2f}秒',
-            'model_path': model_path,
-            'device': device,
-            'precision': precision
-        }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'message': f'模型加载失败: {str(e)}'
+            'success': False,
+            'message': f'模型测试时出错: {str(e)}'
         }
 
 def reload_model(model_id=None):
@@ -187,6 +215,17 @@ def get_service_status():
     Returns:
         dict: 包含服务状态信息的字典
     """
+    global _is_loading, model, tokenizer, model_wrapper
+    
+    # 如果正在加载，返回加载中状态
+    if _is_loading:
+        return {
+            'status': 'loading',
+            'message': '模型正在加载中，请稍候',
+            'gpu_available': torch.cuda.is_available(),
+            'model_loaded': False
+        }
+    
     # 检查模型是否已加载
     if model is None or tokenizer is None:
         return {
@@ -233,11 +272,27 @@ def get_model():
     Returns:
         tuple: (model, tokenizer) 元组
     """
-    global model, tokenizer, model_wrapper
+    global model, tokenizer, model_wrapper, _is_loading
+    
+    # 如果正在加载中，等待加载完成
+    if _is_loading:
+        logger.info("模型正在加载中，等待...")
+        # 等待一段时间
+        for _ in range(10):  # 最多等待10秒
+            time.sleep(1)
+            if not _is_loading:
+                break
     
     # 如果模型未加载，则加载模型
     if model is None or tokenizer is None:
-        init_model()
+        logger.info("模型未加载，开始加载...")
+        result = init_model()
+        logger.info(f"模型加载结果: {result}")
+        
+        # 再次检查模型是否已加载
+        if model is None or tokenizer is None:
+            logger.error("模型加载失败，无法获取模型实例")
+            return None, None
     
     # 如果有模型包装器，则返回其模型和分词器
     if model_wrapper is not None:
