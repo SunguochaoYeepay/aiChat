@@ -1,6 +1,9 @@
 @echo off
 echo 启动测试流程...
 
+REM 切换到项目根目录
+cd ..\..\
+
 REM 激活虚拟环境
 call chat_env\Scripts\activate.bat
 
