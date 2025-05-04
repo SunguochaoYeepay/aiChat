@@ -198,7 +198,9 @@ def analyze_image(image_base64, query):
                 os.makedirs(image_dir, exist_ok=True)
                 full_img_path = os.path.join(image_dir, temp_img_path)
                 
-                # 保存图像
+                # 保存图像 - 确保转换为RGB模式
+                if image.mode == 'RGBA':
+                    image = image.convert('RGB')
                 image.save(full_img_path, format="JPEG")
                 print(f"临时图像已保存到: {full_img_path}")
                 
@@ -254,7 +256,9 @@ def analyze_image(image_base64, query):
             os.makedirs(image_dir, exist_ok=True)
             full_img_path = os.path.join(image_dir, temp_img_path)
             
-            # 保存图像
+            # 保存图像 - 确保转换为RGB模式
+            if image.mode == 'RGBA':
+                image = image.convert('RGB')
             image.save(full_img_path, format="JPEG")
             print(f"临时图像已保存到: {full_img_path}")
             
