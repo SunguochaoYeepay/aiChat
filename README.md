@@ -400,19 +400,40 @@ design-helper/
 }
 ```
 
-## 测试脚本
+## 测试指南
 
-项目包含多个测试脚本，可用于验证系统功能：
+系统提供了完整的测试用例，覆盖所有API接口：
 
-- `scripts/test_scripts/test_model_loading.py` - 测试模型加载
-- `scripts/test_scripts/test_chat_api.py` - 测试聊天API
-- `scripts/test_scripts/run_complete_test.py` - 运行完整测试
+1. **运行完整测试**
+   ```bash
+   # 运行所有测试，包括聊天、图像分析和WebSocket测试
+   scripts\test_scripts\run_all_tests.bat
+   ```
 
-运行测试示例：
-```
-cd design-helper
-chat_env\Scripts\python.exe scripts\test_scripts\test_chat_api.py
-```
+2. **运行单项测试**
+   ```bash
+   # 测试聊天API
+   python scripts/test_scripts/test_chat_api.py
+   
+   # 测试图像分析API
+   python scripts/test_scripts/test_analyze_api.py
+   
+   # 测试WebSocket接口
+   python scripts/test_scripts/test_websocket.py
+   ```
+
+3. **安装测试依赖**
+   ```bash
+   pip install -r scripts/test_scripts/test_requirements.txt
+   ```
+
+测试用例详情:
+- `test_chat_api.py`: 测试聊天完成API (`/api/v1/chat/completions`)
+- `test_analyze_api.py`: 测试图像分析API (`/api/analyze`)
+- `test_websocket.py`: 测试WebSocket接口 (`ws://server/ws/chat/` 和 `ws://server/ws/analyze/`)
+- `check_model_status.py`: 检查模型加载状态
+
+测试结果会以日志形式输出，并通过退出码指示测试成功与否（0表示成功，非0表示失败）。
 
 ## 常见问题
 
@@ -484,3 +505,56 @@ chat_env\Scripts\python.exe scripts\test_scripts\test_chat_api.py
 2. 添加模型加载进度反馈
 3. 优化内存使用
 4. 增加更完善的监控和自我恢复机制 
+
+## API接口文档
+
+系统提供以下对外服务接口：
+
+### HTTP接口
+
+| 接口路径 | 方法 | 描述 |
+|---------|------|------|
+| `/api/analyze` | POST | 图像分析接口，接收图像和查询文本，返回分析结果 |
+| `/api/v1/chat/completions` | POST | 聊天完成接口，兼容OpenAI格式，支持流式响应 |
+| `/api/search` | POST | 知识库搜索接口，根据查询文本返回相关知识条目 |
+| `/api/status` | GET | 服务状态接口，返回系统和模型的当前状态 |
+
+### WebSocket接口
+
+系统还提供以下WebSocket接口，用于实时通信：
+
+| 接口 | 描述 |
+|------|------|
+| `ws://服务器地址/ws/chat/` | 聊天WebSocket接口，支持实时对话 |
+| `ws://服务器地址/ws/analyze/` | 图像分析WebSocket接口，支持实时图像分析 |
+
+### 接口使用示例
+
+#### 图像分析接口
+```json
+// POST /api/analyze
+{
+  "image_base64": "图像的base64编码",
+  "query": "关于图像的问题"
+}
+```
+
+#### 聊天完成接口
+```json
+// POST /api/v1/chat/completions
+{
+  "messages": [
+    {"role": "user", "content": "用户问题"}
+  ],
+  "stream": false
+}
+```
+
+#### 知识库搜索接口
+```json
+// POST /api/search
+{
+  "query": "搜索关键词",
+  "top_k": 5
+}
+``` 
