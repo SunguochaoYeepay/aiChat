@@ -52,11 +52,34 @@ def wait_for_model_load(timeout=600):
     logger.error(f"模型加载超时，已等待{timeout}秒")
     return False
 
+def run_migrate():
+    """运行数据库迁移命令"""
+    logger.info("运行数据库迁移...")
+    os.chdir(str(admin_system_dir))
+    
+    try:
+        # 运行migrate命令
+        result = subprocess.run(
+            [sys.executable, "manage.py", "migrate", "--settings=admin_system.minimal_settings"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.info(f"迁移成功: {result.stdout}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"迁移失败: {e.stderr}")
+        return False
+
 try:
     logger.info("初始化Django...")
     import django
     django.setup()
     logger.info("Django初始化完成")
+    
+    # 运行数据库迁移
+    if not run_migrate():
+        logger.warning("数据库迁移失败，但将继续尝试启动服务")
     
     # 预加载模型
     logger.info("\n预加载模型...")

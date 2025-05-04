@@ -27,6 +27,9 @@ INSTALLED_APPS = [
     'api',
     'core',
     'channels',
+    'management',
+    'knowledge_base',
+    'vector_search',
 ]
 
 MIDDLEWARE = [
@@ -63,7 +66,7 @@ WSGI_APPLICATION = 'admin_system.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': ':memory:',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
 }
 
