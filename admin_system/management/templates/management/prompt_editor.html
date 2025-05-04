@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提示词模板编辑器</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .editor-container {
+            display: flex;
+            gap: 20px;
+        }
+        .template-list {
+            width: 300px;
+            border-right: 1px solid #eee;
+            padding-right: 20px;
+        }
+        .template-editor {
+            flex: 1;
+        }
+        .btn {
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background-color: #3367d6;
+        }
+        .btn-secondary {
+            background-color: #999;
+        }
+        .btn-secondary:hover {
+            background-color: #777;
+        }
+        .btn-danger {
+            background-color: #EA4335;
+        }
+        .btn-danger:hover {
+            background-color: #d33426;
+        }
+        .back-btn {
+            display: inline-block;
+            margin-bottom: 20px;
+            text-decoration: none;
+            color: #333;
+        }
+        .back-btn:hover {
+            text-decoration: underline;
+        }
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            font-family: monospace;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status-success {
+            background-color: #d9f0d9;
+            color: #2a602a;
+        }
+        .status-error {
+            background-color: #f0d9d9;
+            color: #602a2a;
+        }
+        .template-item {
+            margin-bottom: 5px;
+            padding: 8px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .template-item:hover {
+            background-color: #f0f0f0;
+        }
+        .template-item.active {
+            background-color: #e6f0ff;
+            font-weight: bold;
+        }
+        .template-type {
+            font-size: 12px;
+            color: #666;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="{% url 'admin:index' %}" class="back-btn">← 返回管理界面</a>
+        <h1>提示词模板编辑器</h1>
+        
+        <div class="controls">
+            <button id="refreshBtn" class="btn">刷新模板</button>
+            <button id="saveBtn" class="btn">保存</button>
+            <button id="resetBtn" class="btn btn-danger">重置为默认</button>
+        </div>
+        
+        <div class="editor-container">
+            <div class="template-list">
+                <h3>模板类别</h3>
+                <div id="templateCategories"></div>
+            </div>
+            
+            <div class="template-editor">
+                <h3>编辑模板</h3>
+                <p id="currentPath"></p>
+                <textarea id="templateEditor"></textarea>
+            </div>
+        </div>
+        
+        <div id="status" class="status" style="display: none;"></div>
+    </div>
+    
+    <script>
+        // 全局变量
+        let templates = {};
+        let currentCategory = null;
+        let currentType = null;
+        
+        // 获取元素
+        const templateCategories = document.getElementById('templateCategories');
+        const templateEditor = document.getElementById('templateEditor');
+        const currentPath = document.getElementById('currentPath');
+        const status = document.getElementById('status');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        // 获取API基础URL
+        function getApiBaseUrl() {
+            const protocol = window.location.protocol;
+            const hostname = window.location.hostname; 
+            const port = window.location.port ? `:${window.location.port}` : '';
+            return `${protocol}//${hostname}${port}`;
+        }
+        
+        // 加载模板
+        async function loadTemplates() {
+            try {
+                showStatus('正在加载模板...', 'info');
+                const response = await fetch(`${getApiBaseUrl()}/management/prompt_templates/`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                templates = await response.json();
+                renderTemplateCategories();
+                showStatus('模板加载成功！', 'success');
+            } catch (error) {
+                showStatus(`加载模板失败: ${error.message}`, 'error');
+                console.error('加载模板出错:', error);
+            }
+        }
+        
+        // 渲染模板类别
+        function renderTemplateCategories() {
+            templateCategories.innerHTML = '';
+            
+            for (const category in templates) {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'template-category';
+                
+                // 添加类别标题
+                const categoryTitle = document.createElement('h4');
+                categoryTitle.textContent = getCategoryName(category);
+                categoryTitle.style.marginBottom = '5px';
+                categoryDiv.appendChild(categoryTitle);
+                
+                // 添加该类别下的所有模板类型
+                const types = templates[category];
+                for (const type in types) {
+                    const item = document.createElement('div');
+                    item.className = 'template-item';
+                    if (category === currentCategory && type === currentType) {
+                        item.className += ' active';
+                    }
+                    
+                    item.innerHTML = `${type} <span class="template-type">(${category})</span>`;
+                    item.dataset.category = category;
+                    item.dataset.type = type;
+                    
+                    item.addEventListener('click', function() {
+                        selectTemplate(category, type);
+                    });
+                    
+                    categoryDiv.appendChild(item);
+                }
+                
+                templateCategories.appendChild(categoryDiv);
+            }
+        }
+        
+        // 获取类别显示名称
+        function getCategoryName(category) {
+            const names = {
+                'chat': '文本聊天',
+                'image_analysis': '图像分析',
+                'search': '知识库搜索',
+                'topic_matching': '主题匹配'
+            };
+            return names[category] || category;
+        }
+        
+        // 选择模板
+        function selectTemplate(category, type) {
+            currentCategory = category;
+            currentType = type;
+            
+            // 更新UI选中状态
+            document.querySelectorAll('.template-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.category === category && item.dataset.type === type) {
+                    item.classList.add('active');
+                }
+            });
+            
+            // 显示当前路径
+            currentPath.textContent = `当前编辑: ${category} > ${type}`;
+            
+            // 获取并显示模板内容
+            const content = templates[category][type];
+            templateEditor.value = typeof content === 'object' ? JSON.stringify(content, null, 4) : content;
+        }
+        
+        // 保存模板
+        async function saveTemplates() {
+            try {
+                // 如果正在编辑某个模板，先更新其内容
+                if (currentCategory && currentType) {
+                    updateCurrentTemplate();
+                }
+                
+                showStatus('正在保存模板...', 'info');
+                const response = await fetch(`${getApiBaseUrl()}/management/prompt_templates/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(templates)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                showStatus(`保存成功: ${result.message}`, 'success');
+            } catch (error) {
+                showStatus(`保存失败: ${error.message}`, 'error');
+                console.error('保存模板出错:', error);
+            }
+        }
+        
+        // 更新当前编辑的模板内容
+        function updateCurrentTemplate() {
+            if (!currentCategory || !currentType) return;
+            
+            try {
+                const content = templateEditor.value;
+                
+                // 尝试解析JSON对象
+                if (typeof templates[currentCategory][currentType] === 'object') {
+                    templates[currentCategory][currentType] = JSON.parse(content);
+                } else {
+                    templates[currentCategory][currentType] = content;
+                }
+            } catch (error) {
+                showStatus(`更新模板出错: ${error.message}`, 'error');
+                console.error('更新模板出错:', error);
+            }
+        }
+        
+        // 重置为默认模板
+        async function resetTemplates() {
+            if (!confirm('确定要重置所有模板为默认值吗？这将覆盖您的所有修改！')) {
+                return;
+            }
+            
+            try {
+                showStatus('正在重置模板...', 'info');
+                
+                // 删除配置文件，系统会自动创建默认配置
+                const response = await fetch(`${getApiBaseUrl()}/management/refresh_templates/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                templates = result.templates;
+                renderTemplateCategories();
+                
+                // 清空当前选择
+                currentCategory = null;
+                currentType = null;
+                templateEditor.value = '';
+                currentPath.textContent = '';
+                
+                showStatus('模板已重置为默认值', 'success');
+            } catch (error) {
+                showStatus(`重置失败: ${error.message}`, 'error');
+                console.error('重置模板出错:', error);
+            }
+        }
+        
+        // 显示状态信息
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = 'status';
+            
+            if (type === 'success') {
+                status.classList.add('status-success');
+            } else if (type === 'error') {
+                status.classList.add('status-error');
+            }
+            
+            status.style.display = 'block';
+            
+            // 3秒后自动隐藏成功消息
+            if (type === 'success') {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 3000);
+            }
+        }
+        
+        // 事件监听器
+        refreshBtn.addEventListener('click', loadTemplates);
+        saveBtn.addEventListener('click', saveTemplates);
+        resetBtn.addEventListener('click', resetTemplates);
+        
+        // 初始加载
+        loadTemplates();
+    </script>
+</body>
+</html> 

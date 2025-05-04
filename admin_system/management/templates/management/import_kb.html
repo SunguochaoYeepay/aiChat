@@ -1,0 +1,62 @@
+{% extends 'admin/base_site.html' %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+    <h1>导入知识库文件</h1>
+    
+    <div class="module">
+        <p>点击下面的按钮从"knowledge_base"目录导入知识库文件：</p>
+        
+        <form method="post" action="{% url 'import_knowledge_base' %}">
+            {% csrf_token %}
+            <div style="margin-top: 15px;">
+                <input type="submit" value="开始导入" class="button">
+                <a href="{% url 'admin:management_knowledgebase_changelist' %}" class="button" style="margin-left: 10px;">返回知识库列表</a>
+            </div>
+        </form>
+        
+        <div id="result" style="margin-top: 20px; padding: 10px; display: none;"></div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        const result = document.getElementById('result');
+        
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // 显示加载中提示
+            result.style.display = 'block';
+            result.style.backgroundColor = '#f8f8f8';
+            result.textContent = '正在导入知识库文件，请稍候...';
+            
+            // 发送AJAX请求
+            fetch(form.action, {
+                method: 'POST',
+                body: new FormData(form),
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    result.style.backgroundColor = '#dff0d8';
+                    result.style.color = '#3c763d';
+                } else {
+                    result.style.backgroundColor = '#f2dede';
+                    result.style.color = '#a94442';
+                }
+                result.textContent = data.message;
+            })
+            .catch(error => {
+                result.style.backgroundColor = '#f2dede';
+                result.style.color = '#a94442';
+                result.textContent = '导入过程中发生错误: ' + error.message;
+            });
+        });
+    });
+</script>
+{% endblock %} 
