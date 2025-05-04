@@ -321,3 +321,86 @@ MIT
    cd admin_system
    python manage.py runserver 0.0.0.0:8000
    ``` 
+
+# Qwen-VL-Chat API 服务
+
+这个项目提供了一个基于Django的API服务，用于与Qwen-VL-Chat模型交互。
+
+## 系统需求
+
+- Windows 10/11
+- Python 3.9+
+- CUDA支持的NVIDIA GPU (至少8GB显存)
+- 已下载的Qwen-VL-Chat-Int4模型
+
+## 快速开始
+
+1. 确保您已安装Python 3.9+和CUDA支持
+2. 确保您已下载Qwen-VL-Chat-Int4模型到`D:/AI-DEV/models/Qwen-VL-Chat-Int4`目录
+   - 如果您的模型在其他位置，请修改`startup.py`文件中的`model_path`变量
+3. 双击`start_service.bat`启动服务
+4. 服务器将自动加载模型并启动API服务
+
+## API使用方法
+
+### 聊天API
+
+**端点**: `http://localhost:8000/api/v1/chat/completions`
+
+**方法**: POST
+
+**请求体**:
+```json
+{
+  "messages": [
+    {"role": "system", "content": "你是一个有用的助手。"},
+    {"role": "user", "content": "你好，请介绍一下自己。"}
+  ],
+  "stream": false
+}
+```
+
+**响应**:
+```json
+{
+  "id": "chatcmpl-123456789",
+  "object": "chat.completion",
+  "created": 1677858242,
+  "model": "qwen-vl-chat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "我是通义千问，一个由阿里云开发的大型语言模型..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "processing_time": "2.5秒"
+}
+```
+
+## 常见问题
+
+- **问题**: 启动时显示"模型未加载"
+  **解决方案**: 确保模型路径正确，且您的GPU有足够显存
+
+- **问题**: 无法启动Django服务器
+  **解决方案**: 确保已正确安装所有依赖项，并且端口8000未被占用
+
+- **问题**: API返回错误
+  **解决方案**: 检查请求格式是否符合要求，确保模型已成功加载
+
+## 依赖项
+
+- Django 4.2+
+- PyTorch (CUDA支持版本)
+- transformers
+- auto-gptq
+- optimum 

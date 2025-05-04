@@ -61,15 +61,8 @@ def chat_completion(messages, stream=False):
         if stream:
             # 这里使用生成器实现流式响应
             def generate_stream():
-                try:
-                    if model is None or not hasattr(model, 'chat'):
-                        yield "模型未正确加载或不支持chat方法"
-                        return
-                    
-                    response, _ = model.chat(tokenizer, prompt, history=history)
-                    yield response
-                except Exception as e:
-                    yield f"生成流式响应时出错: {str(e)}"
+                response, _ = model.chat(tokenizer, prompt, history=history)
+                yield response
                 
             return {
                 "stream": generate_stream(),
@@ -77,51 +70,33 @@ def chat_completion(messages, stream=False):
             }
         else:
             # 标准响应
-            try:
-                if model is None:
-                    return {
-                        "error": "模型未加载",
-                        "processing_time": "N/A"
+            response, new_history = model.chat(tokenizer, prompt, history=history)
+            
+            # 计算处理时间
+            processing_time = time.time() - start_time
+            
+            return {
+                "id": f"chatcmpl-{int(time.time()*1000)}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": "qwen-vl-chat",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": response
+                        },
+                        "finish_reason": "stop"
                     }
-                
-                if not hasattr(model, 'chat'):
-                    return {
-                        "error": "模型不支持chat方法",
-                        "processing_time": "N/A"
-                    }
-                
-                response, new_history = model.chat(tokenizer, prompt, history=history)
-                
-                # 计算处理时间
-                processing_time = time.time() - start_time
-                
-                return {
-                    "id": f"chatcmpl-{int(time.time()*1000)}",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": "qwen-vl-chat",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": response
-                            },
-                            "finish_reason": "stop"
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 0,  # 暂不计算具体token
-                        "completion_tokens": 0,
-                        "total_tokens": 0
-                    },
-                    "processing_time": f"{processing_time:.2f}秒"
-                }
-            except Exception as e:
-                return {
-                    "error": f"标准响应生成出错: {str(e)}",
-                    "processing_time": "N/A"
-                }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,  # 暂不计算具体token
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                },
+                "processing_time": f"{processing_time:.2f}秒"
+            }
     except Exception as e:
         return {
             "error": f"处理过程中出错: {str(e)}",
