@@ -1,8 +1,0 @@
-# 监控工具依赖
-psutil>=5.9.0
-matplotlib>=3.5.0
-requests>=2.27.0
-pynvml>=11.0.0
-
-# 可选依赖，如果使用GPU
-# torch>=2.0.0 
