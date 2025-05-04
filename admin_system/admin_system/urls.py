@@ -2,7 +2,7 @@
 URL configuration for admin_system project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
+    https://docs.djangoproject.com/en/4.2/topics/http/urls/
 Examples:
 Function views
     1. Add an import:  from my_app import views
@@ -16,18 +16,21 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView
 from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('management/', include('management.urls')),
     path('vector/', include('vector_search.urls')),
-    path('', RedirectView.as_view(url='admin/', permanent=False)),
-]
+    # 集成API应用路由
+    path('api/', include('api.urls')),
+    # 兼容原有FastAPI接口路由（不含api前缀）
+    path('', include('api.urls')),
+] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 if settings.DEBUG:
     import debug_toolbar
-    urlpatterns.append(
+    urlpatterns += [
         path('__debug__/', include(debug_toolbar.urls)),
-    )
+    ]

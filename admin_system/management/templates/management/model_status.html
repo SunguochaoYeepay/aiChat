@@ -1,0 +1,242 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block extrastyle %}
+<style>
+    .model-status-container {
+        padding: 20px;
+        background-color: #fff;
+        border-radius: 4px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .status-card {
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+    .status-running {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+    }
+    .status-stopped {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+    }
+    .status-loading {
+        background-color: #e2e3e5;
+        border: 1px solid #d6d8db;
+    }
+    .model-config-card {
+        padding: 15px;
+        margin-bottom: 10px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+    }
+    .model-config-active {
+        border-left: 5px solid #28a745;
+    }
+    .model-info {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+    .model-info div {
+        margin-bottom: 10px;
+        flex-basis: 48%;
+    }
+    .action-buttons {
+        margin-top: 15px;
+    }
+    .progress {
+        height: 5px;
+        margin-bottom: 10px;
+    }
+    .progress-bar {
+        background-color: #007bff;
+    }
+    .label {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        color: white;
+        font-size: 0.8em;
+        margin-right: 5px;
+    }
+    .label-cuda {
+        background-color: #17a2b8;
+    }
+    .label-cpu {
+        background-color: #6c757d;
+    }
+    .label-active {
+        background-color: #28a745;
+    }
+    .label-inactive {
+        background-color: #dc3545;
+    }
+    #refresh-button {
+        float: right;
+    }
+    #loading-spinner {
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="model-status-container">
+    <h1>模型服务状态
+        <button id="refresh-button" class="button">
+            <span id="loading-spinner">⌛</span> 刷新
+        </button>
+    </h1>
+    
+    <!-- 服务状态卡片 -->
+    <div class="status-card {% if service_status.status == 'running' %}status-running{% elif service_status.status == 'stopped' %}status-stopped{% else %}status-loading{% endif %}">
+        <h2>当前状态: {{ service_status.status|default:"未知" }}</h2>
+        <p>{{ service_status.message|default:"无法获取服务状态" }}</p>
+        
+        {% if service_status.model_loaded %}
+        <div class="model-info">
+            <div><strong>设备:</strong> {{ service_status.device }}</div>
+            <div><strong>加载时间:</strong> {{ service_status.load_time|floatformat:2 }}秒</div>
+            
+            {% if service_status.gpu_info %}
+            <div><strong>GPU:</strong> {{ service_status.gpu_info.name }}</div>
+            <div>
+                <strong>GPU内存:</strong> 
+                {{ service_status.gpu_info.allocated_memory|floatformat:2 }} / {{ service_status.gpu_info.total_memory|floatformat:2 }} GB
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" style="width: {% widthratio service_status.gpu_info.allocated_memory service_status.gpu_info.total_memory 100 %}%"></div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- 模型配置卡片 -->
+    <h2>模型配置</h2>
+    {% if model_configs %}
+        {% for config in model_configs %}
+        <div class="model-config-card {% if config.is_active %}model-config-active{% endif %}">
+            <h3>
+                {{ config.name }}
+                {% if config.is_active %}
+                <span class="label label-active">激活</span>
+                {% else %}
+                <span class="label label-inactive">未激活</span>
+                {% endif %}
+                
+                {% if config.device == 'cuda' %}
+                <span class="label label-cuda">GPU</span>
+                {% else %}
+                <span class="label label-cpu">CPU</span>
+                {% endif %}
+            </h3>
+            <div class="model-info">
+                <div><strong>模型路径:</strong> {{ config.model_path }}</div>
+                <div><strong>精度:</strong> {{ config.precision }}</div>
+                <div><strong>批大小:</strong> {{ config.batch_size }}</div>
+                <div><strong>最后更新:</strong> {{ config.updated_at }}</div>
+            </div>
+            {% if config.description %}
+            <p><strong>描述:</strong> {{ config.description }}</p>
+            {% endif %}
+            <div class="action-buttons">
+                {% if not config.is_active %}
+                <button class="button activate-button" data-id="{{ config.id }}">激活</button>
+                {% endif %}
+                <button class="button reload-button" data-id="{{ config.id }}">重新加载</button>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>没有找到模型配置，请在管理界面中添加。</p>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extrahead %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 刷新按钮
+        const refreshButton = document.getElementById('refresh-button');
+        refreshButton.addEventListener('click', function() {
+            const spinner = document.getElementById('loading-spinner');
+            spinner.style.display = 'inline';
+            
+            fetch('{% url "model_service_status" %}', {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                window.location.reload();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('刷新状态时出错: ' + error);
+            })
+            .finally(() => {
+                spinner.style.display = 'none';
+            });
+        });
+        
+        // 激活按钮
+        const activateButtons = document.querySelectorAll('.activate-button');
+        activateButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const modelId = this.dataset.id;
+                
+                if (confirm('确定要激活此模型配置吗？')) {
+                    window.location.href = '{% url "admin:management_modelconfig_changelist" %}';
+                }
+            });
+        });
+        
+        // 重新加载按钮
+        const reloadButtons = document.querySelectorAll('.reload-button');
+        reloadButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const modelId = this.dataset.id;
+                this.disabled = true;
+                this.textContent = '加载中...';
+                
+                if (confirm('确定要重新加载此模型吗？这可能需要几分钟时间。')) {
+                    const formData = new FormData();
+                    formData.append('model_id', modelId);
+                    
+                    fetch('{% url "reload_model" %}', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert('模型重新加载成功: ' + data.message);
+                            window.location.reload();
+                        } else {
+                            alert('模型重新加载失败: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('重新加载模型时出错: ' + error);
+                    })
+                    .finally(() => {
+                        this.disabled = false;
+                        this.textContent = '重新加载';
+                    });
+                } else {
+                    this.disabled = false;
+                    this.textContent = '重新加载';
+                }
+            });
+        });
+    });
+</script>
+{% endblock %} 

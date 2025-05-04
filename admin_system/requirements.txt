@@ -1,0 +1,19 @@
+# Django及其依赖
+Django>=4.2.0,<5.0.0
+django-simpleui>=2022.3.3
+django-debug-toolbar>=4.0.0
+
+# Channels及WebSocket支持
+channels>=4.0.0
+daphne>=4.0.0
+
+# 机器学习相关
+numpy>=1.20.0
+sentence-transformers>=2.2.0
+torch>=1.11.0
+transformers>=4.20.0
+pillow>=9.0.0
+
+# 其他工具
+psutil>=5.9.0 # 用于系统监控
+requests>=2.27.0 

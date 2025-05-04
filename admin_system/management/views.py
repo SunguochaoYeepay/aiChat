@@ -6,7 +6,7 @@ import os
 import json
 import subprocess
 from pathlib import Path
-from .models import KnowledgeBase, ServiceControl, PromptTemplate
+from .models import KnowledgeBase, ServiceControl, PromptTemplate, ModelConfig
 
 def import_knowledge_base(request):
     """导入知识库文件"""
@@ -169,3 +169,109 @@ def refresh_templates(request):
             return JsonResponse({'status': 'error', 'message': str(e)})
     
     return JsonResponse({'status': 'error', 'message': '仅支持POST请求'})
+
+def model_service_status(request):
+    """获取模型服务状态"""
+    try:
+        # 导入模型服务模块
+        from core.model_service import get_service_status
+        
+        # 获取服务状态
+        status = get_service_status()
+        
+        # 获取所有模型配置
+        configs = []
+        for config in ModelConfig.objects.all().order_by('-is_active', 'name'):
+            configs.append({
+                'id': config.id,
+                'name': config.name,
+                'model_path': config.model_path,
+                'device': config.device,
+                'is_active': config.is_active,
+                'precision': config.precision,
+                'batch_size': config.batch_size,
+                'description': config.description,
+                'updated_at': config.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        # 创建上下文
+        context = {
+            'service_status': status,
+            'model_configs': configs,
+            'active_config': next((c for c in configs if c['is_active']), None)
+        }
+        
+        # 根据请求类型返回
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse(context)
+        else:
+            return render(request, 'management/model_status.html', context)
+            
+    except ImportError:
+        context = {
+            'service_status': {
+                'status': 'error',
+                'message': '模型服务模块未找到',
+                'model_loaded': False
+            },
+            'model_configs': [],
+            'active_config': None
+        }
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse(context)
+        else:
+            return render(request, 'management/model_status.html', context)
+            
+    except Exception as e:
+        context = {
+            'service_status': {
+                'status': 'error',
+                'message': f'获取状态时出错: {str(e)}',
+                'model_loaded': False
+            },
+            'model_configs': [],
+            'active_config': None
+        }
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse(context)
+        else:
+            return render(request, 'management/model_status.html', context)
+
+@csrf_exempt
+def reload_model(request):
+    """重新加载模型"""
+    if request.method == 'POST':
+        try:
+            # 导入模型服务模块
+            from core.model_service import reload_model as reload_model_service
+            
+            # 获取模型ID
+            model_id = request.POST.get('model_id')
+            
+            # 重新加载模型
+            result = reload_model_service(model_id)
+            
+            return JsonResponse(result)
+            
+        except ImportError:
+            return JsonResponse({
+                'status': 'error',
+                'message': '模型服务模块未找到'
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'重新加载模型时出错: {str(e)}'
+            })
+    
+    return JsonResponse({
+        'status': 'error',
+        'message': '仅支持POST请求'
+    })
+
+def vector_search_ui(request):
+    """知识库向量搜索界面"""
+    return render(request, 'management/vector_search.html')
