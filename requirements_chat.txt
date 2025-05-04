@@ -1,9 +1,0 @@
-torch>=2.0.0
-torchvision>=0.15.0
-transformers>=4.30.0
-optimum>=1.16.0
-auto-gptq>=0.4.0
-einops>=0.6.0
-transformers_stream_generator>=0.0.4
-matplotlib>=3.7.0
-tiktoken>=0.4.0

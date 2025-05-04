@@ -1,13 +1,28 @@
+# 主要依赖
+django>=4.2.0
+channels>=4.0.0
 fastapi==0.104.1
 uvicorn==0.24.0
 pydantic==2.4.2
 requests==2.31.0
 python-multipart==0.0.6
 markdown==3.5.1
+
+# 模型相关依赖
 torch>=2.0.0
+torchvision>=0.15.0
 transformers>=4.31.0
+optimum>=1.16.0
+auto-gptq>=0.4.0
+einops>=0.6.0
+transformers_stream_generator>=0.0.4
+
+# 图像处理依赖
 pillow>=10.0.0
 numpy>=1.24.0
-# GPU加速需要额外手动安装的依赖
-# optimum
-# auto-gptq 
+
+# 可视化工具
+matplotlib>=3.7.0
+
+# 其他工具
+tiktoken>=0.4.0 

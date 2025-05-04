@@ -333,12 +333,26 @@ MIT
 - CUDA支持的NVIDIA GPU (至少8GB显存)
 - 已下载的Qwen-VL-Chat-Int4模型
 
+## 项目结构
+
+```
+design-helper/
+├── admin_system/          # Django后端服务
+├── chat_env/              # Python虚拟环境目录
+├── logs/                  # 日志文件
+├── scripts/               # 脚本目录
+│   ├── startup/           # 启动脚本
+│   └── test_scripts/      # 测试脚本
+├── start_service.bat      # 主服务启动批处理文件
+└── README.md              # 项目说明文档
+```
+
 ## 快速开始
 
 1. 确保您已安装Python 3.9+和CUDA支持
 2. 确保您已下载Qwen-VL-Chat-Int4模型到`D:/AI-DEV/models/Qwen-VL-Chat-Int4`目录
-   - 如果您的模型在其他位置，请修改`startup.py`文件中的`model_path`变量
-3. 双击`start_service.bat`启动服务
+   - 如果您的模型在其他位置，请修改`scripts/startup/startup.py`文件中的`model_path`变量
+3. 双击项目根目录下的`start_service.bat`启动服务
 4. 服务器将自动加载模型并启动API服务
 
 ## API使用方法
@@ -384,6 +398,20 @@ MIT
   },
   "processing_time": "2.5秒"
 }
+```
+
+## 测试脚本
+
+项目包含多个测试脚本，可用于验证系统功能：
+
+- `scripts/test_scripts/test_model_loading.py` - 测试模型加载
+- `scripts/test_scripts/test_chat_api.py` - 测试聊天API
+- `scripts/test_scripts/run_complete_test.py` - 运行完整测试
+
+运行测试示例：
+```
+cd design-helper
+chat_env\Scripts\python.exe scripts\test_scripts\test_chat_api.py
 ```
 
 ## 常见问题
