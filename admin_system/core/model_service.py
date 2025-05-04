@@ -68,6 +68,11 @@ def init_model(model_path=None, device=None, precision=None):
                     model_path = getattr(settings, 'DEFAULT_MODEL_PATH', 'D:/AI-DEV/models/Qwen-VL-Chat-Int4')
                     device = getattr(settings, 'DEFAULT_DEVICE', 'cuda')
                     precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
+            
+            # 检查CUDA是否可用，如果不可用则回退到CPU
+            if device == 'cuda' and not torch.cuda.is_available():
+                logger.warning("CUDA不可用，回退到CPU模式运行")
+                device = 'cpu'
                     
             logger.info(f"开始加载模型: {model_path}")
             logger.info(f"设备: {device}, 精度: {precision}")
@@ -79,7 +84,9 @@ def init_model(model_path=None, device=None, precision=None):
             model_wrapper = ModelWrapper(model_path, device, precision)
             
             # 加载模型
-            if model_wrapper.load():
+            load_result = model_wrapper.load()
+            
+            if load_result.get('status') == 'success':
                 # 设置全局变量
                 model = model_wrapper.model
                 tokenizer = model_wrapper.tokenizer
@@ -106,10 +113,10 @@ def init_model(model_path=None, device=None, precision=None):
                     'precision': precision
                 }
             else:
-                logger.error("模型加载失败")
+                logger.error(f"模型加载失败: {load_result.get('message', '未知错误')}")
                 return {
                     'status': 'error',
-                    'message': '模型加载失败，请查看日志获取详细信息'
+                    'message': load_result.get('message', '模型加载失败，请查看日志获取详细信息')
                 }
         except Exception as e:
             logger.exception(f"模型加载异常: {str(e)}")
@@ -264,39 +271,64 @@ def get_service_status():
         } if model_config else {}
     }
 
-
 def get_model():
     """
-    获取模型实例
+    获取模型实例，如果模型未加载则先加载模型
     
     Returns:
-        tuple: (model, tokenizer) 元组
+        tuple: (model, tokenizer)
     """
-    global model, tokenizer, model_wrapper, _is_loading
+    global _is_loading, model, tokenizer
     
-    # 如果正在加载中，等待加载完成
+    # 如果模型已加载，直接返回
+    if model is not None and tokenizer is not None:
+        return model, tokenizer
+    
+    # 如果模型正在加载中，等待加载完成
     if _is_loading:
-        logger.info("模型正在加载中，等待...")
-        # 等待一段时间
-        for _ in range(10):  # 最多等待10秒
-            time.sleep(1)
-            if not _is_loading:
-                break
+        logger.info("模型正在加载中，等待加载完成...")
+        while _is_loading:
+            time.sleep(0.5)
+        return model, tokenizer
     
-    # 如果模型未加载，则加载模型
-    if model is None or tokenizer is None:
+    # 开始加载模型
+    _is_loading = True
+    try:
         logger.info("模型未加载，开始加载...")
-        result = init_model()
+        
+        # 获取配置
+        model_path = getattr(settings, 'DEFAULT_MODEL_PATH', 'D:/AI-DEV/models/Qwen-VL-Chat')
+        device = getattr(settings, 'DEFAULT_DEVICE', 'cuda')
+        precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
+        
+        # 检查CUDA是否可用，如果不可用则回退到CPU
+        if device == 'cuda' and not torch.cuda.is_available():
+            logger.warning("CUDA不可用，回退到CPU模式运行")
+            device = 'cpu'
+            
+        logger.info(f"开始加载模型: {model_path}")
+        logger.info(f"设备: {device}, 精度: {precision}")
+        
+        # 创建模型包装器
+        wrapper = ModelWrapper(model_path, device, precision)
+        
+        # 加载模型
+        result = wrapper.load()
         logger.info(f"模型加载结果: {result}")
         
-        # 再次检查模型是否已加载
-        if model is None or tokenizer is None:
-            logger.error("模型加载失败，无法获取模型实例")
-            return None, None
+        if result.get('status') == 'success':
+            model = wrapper.model
+            tokenizer = wrapper.tokenizer
+        else:
+            logger.error("模型加载失败")
+            
+    except Exception as e:
+        logger.exception(f"加载模型时出错: {str(e)}")
+    finally:
+        _is_loading = False
     
-    # 如果有模型包装器，则返回其模型和分词器
-    if model_wrapper is not None:
-        return model_wrapper.model, model_wrapper.tokenizer
-        
+    if model is None:
+        logger.error("模型加载失败，无法获取模型实例")
+    
     return model, tokenizer
  

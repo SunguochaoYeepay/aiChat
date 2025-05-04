@@ -8,7 +8,8 @@
 import torch
 import logging
 import traceback
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+import os
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -34,75 +35,103 @@ class ModelWrapper:
         logger.info(f"创建ModelWrapper实例: 路径={model_path}, 设备={self.device}, 精度={precision}")
     
     def load(self):
-        """加载模型和分词器"""
+        """
+        加载模型和tokenizer
+        
+        Returns:
+            dict: 加载状态
+        """
         try:
-            logger.info(f"开始加载模型: {self.model_path}")
-            logger.info(f"设备: {self.device}, 精度: {self.precision}")
-            logger.info(f"CUDA是否可用: {torch.cuda.is_available()}")
-            
-            if torch.cuda.is_available():
-                logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-                logger.info(f"GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024 / 1024 / 1024:.2f} GB")
-            
             # 加载tokenizer
-            try:
-                logger.info("加载tokenizer...")
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    self.model_path, 
-                    trust_remote_code=True
-                )
-                logger.info("tokenizer加载成功")
-            except Exception as e:
-                logger.exception(f"tokenizer加载失败: {str(e)}")
-                return False
+            logger.info("加载tokenizer...")
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_path, 
+                trust_remote_code=True
+            )
+            logger.info("tokenizer加载成功")
             
-            # 加载模型
+            # 加载model
+            logger.info("加载model...")
+            
+            # 判断是否使用量化模型
+            is_int4_model = "Int4" in self.model_path
+            is_int8_model = "Int8" in self.model_path
+            
+            # 检查是否是量化模型但CUDA不可用
+            if (is_int4_model or is_int8_model) and self.device == 'cpu':
+                logger.warning("检测到尝试在CPU上加载量化模型，量化模型需要GPU支持")
+                logger.warning("正在尝试在CPU上加载标准模型...")
+                
+                # 尝试寻找非量化版本的模型
+                non_quantized_path = self.model_path.replace("-Int4", "").replace("-Int8", "")
+                if os.path.exists(non_quantized_path):
+                    logger.info(f"找到非量化模型: {non_quantized_path}，尝试加载...")
+                    self.model_path = non_quantized_path
+                else:
+                    return {
+                        'status': 'error',
+                        'message': '量化模型需要GPU支持，且未找到对应的非量化模型。请使用带GPU的环境或提供非量化模型路径'
+                    }
+            
             try:
-                logger.info("加载model...")
+                # 尝试加载模型
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_path,
+                    device_map=self.device,
                     trust_remote_code=True,
-                    torch_dtype=self.torch_dtype,
-                    low_cpu_mem_usage=True,
-                    use_cache=True
-                )
+                    bf16=(self.precision == 'bfloat16'),
+                    fp16=(self.precision == 'float16')
+                ).eval()
                 logger.info("model加载成功")
-            except Exception as e:
-                logger.exception(f"model加载失败: {str(e)}")
-                return False
+            except RuntimeError as e:
+                if "GPU is required" in str(e) and self.device == 'cuda':
+                    # GPU需要但不可用，尝试回退到CPU
+                    logger.warning(f"GPU加载失败: {e}")
+                    logger.warning("尝试回退到CPU模式")
+                    self.device = 'cpu'
+                    
+                    # 检查是否是量化模型
+                    if is_int4_model or is_int8_model:
+                        # 量化模型无法在CPU上运行，查找非量化版本
+                        non_quantized_path = self.model_path.replace("-Int4", "").replace("-Int8", "")
+                        if os.path.exists(non_quantized_path):
+                            logger.info(f"找到非量化模型: {non_quantized_path}，尝试加载...")
+                            self.model_path = non_quantized_path
+                        else:
+                            logger.error("未找到非量化模型，无法在CPU上加载量化模型")
+                            raise RuntimeError("量化模型需要GPU支持，且未找到对应的非量化模型")
+                    
+                    # 重新尝试用CPU加载
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_path,
+                        device_map=self.device,
+                        trust_remote_code=True
+                    ).eval()
+                    logger.info("model已在CPU上加载成功")
+                else:
+                    # 其他错误，重新抛出
+                    raise
             
-            # 如果CUDA可用，将模型移至GPU
-            if self.device == "cuda":
-                try:
-                    logger.info("将model移至CUDA...")
-                    self.model = self.model.to(self.device)
-                    logger.info("model已移至CUDA")
-                except Exception as e:
-                    logger.exception(f"将model移至CUDA失败: {str(e)}")
-                    # 回退到CPU
-                    logger.info("回退到CPU模式")
-                    self.device = "cpu"
+            # 配置生成参数
+            self.model.generation_config = GenerationConfig.from_pretrained(
+                self.model_path, 
+                trust_remote_code=True
+            )
             
-            # 设置为评估模式
-            self.model = self.model.eval()
+            return {
+                'status': 'success',
+                'message': f'模型加载成功: {self.model_path}'
+            }
             
-            # 标记模型已加载
-            self.is_loaded = True
-            logger.info("模型加载完成")
-            
-            # 验证模型
-            try:
-                logger.info("验证模型...")
-                result, _ = self.model.chat(self.tokenizer, "测试", history=[])
-                logger.info(f"模型验证成功，返回: {result[:50]}...")
-            except Exception as e:
-                logger.exception(f"模型验证失败: {str(e)}")
-                # 尽管验证失败，但还是认为模型已加载
-            
-            return True
         except Exception as e:
-            logger.exception(f"模型加载过程中遇到未处理的异常: {str(e)}")
-            return False
+            logger.error(f"model加载失败: {str(e)}")
+            # 记录详细错误堆栈
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                'status': 'error',
+                'message': f'模型加载失败: {str(e)}'
+            }
     
     def chat(self, prompt, history=None):
         """

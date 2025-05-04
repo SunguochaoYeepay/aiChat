@@ -5,9 +5,10 @@
 """
 import os
 import re
-import base64
-import time
+import json
 import uuid
+import time
+import base64
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 from django.conf import settings
@@ -174,6 +175,16 @@ def analyze_image(image_base64, query):
         # 获取模型和tokenizer
         model, tokenizer = get_model()
         
+        # 检查模型和tokenizer是否成功加载
+        if model is None or tokenizer is None:
+            error_msg = "模型或tokenizer加载失败，无法进行图像分析"
+            print(f"错误: {error_msg}")
+            return {
+                "result": f"分析过程中出错: {error_msg}",
+                "processing_time": "N/A",
+                "error": error_msg
+            }
+        
         # 处理多张图片的情况
         if len(images) > 1:
             # 多张图片分析
@@ -181,14 +192,29 @@ def analyze_image(image_base64, query):
             boxed_image_urls = []
             
             for i, image in enumerate(images):
+                # 临时保存图像以获取图像路径
+                temp_img_path = f"temp_image_{i}_{uuid.uuid4().hex}.jpg"
+                image_dir = os.path.join(settings.BASE_DIR, 'static', 'temp_images')
+                os.makedirs(image_dir, exist_ok=True)
+                full_img_path = os.path.join(image_dir, temp_img_path)
+                
+                # 保存图像
+                image.save(full_img_path, format="JPEG")
+                print(f"临时图像已保存到: {full_img_path}")
+                
                 # 构建提示词
                 img_query = f"图片{i+1}: {query}" if len(images) > 1 else query
                 
-                # 构建模型输入
+                # 使用from_list_format方法构建输入
+                model_inputs = tokenizer.from_list_format([
+                    {'image': full_img_path},
+                    {'text': img_query}
+                ])
+                
+                # 调用模型 - 不再直接传递image参数
                 response, history = model.chat(
                     tokenizer,
-                    query=img_query,
-                    image=image,
+                    model_inputs,
                     history=[]
                 )
                 
@@ -202,6 +228,13 @@ def analyze_image(image_base64, query):
                 results.append(response)
                 if boxed_url:
                     boxed_image_urls.append(boxed_url)
+                
+                # 删除临时图像
+                try:
+                    os.remove(full_img_path)
+                    print(f"临时图像已删除: {full_img_path}")
+                except Exception as e:
+                    print(f"删除临时图像时出错: {e}")
             
             # 计算处理时间
             processing_time = time.time() - start_time
@@ -215,11 +248,26 @@ def analyze_image(image_base64, query):
             # 单张图片分析
             image = images[0]
             
-            # 构建模型输入
+            # 临时保存图像以获取图像路径
+            temp_img_path = f"temp_image_{uuid.uuid4().hex}.jpg"
+            image_dir = os.path.join(settings.BASE_DIR, 'static', 'temp_images')
+            os.makedirs(image_dir, exist_ok=True)
+            full_img_path = os.path.join(image_dir, temp_img_path)
+            
+            # 保存图像
+            image.save(full_img_path, format="JPEG")
+            print(f"临时图像已保存到: {full_img_path}")
+            
+            # 使用from_list_format方法构建输入
+            model_inputs = tokenizer.from_list_format([
+                {'image': full_img_path},
+                {'text': query}
+            ])
+            
+            # 调用模型 - 不再直接传递image参数
             response, history = model.chat(
                 tokenizer,
-                query=query,
-                image=image,
+                model_inputs,
                 history=[]
             )
             
@@ -228,6 +276,13 @@ def analyze_image(image_base64, query):
             
             # 保存带边界框的图像
             boxed_url = save_boxed_image(image, boxes) if boxes else None
+            
+            # 删除临时图像
+            try:
+                os.remove(full_img_path)
+                print(f"临时图像已删除: {full_img_path}")
+            except Exception as e:
+                print(f"删除临时图像时出错: {e}")
             
             # 计算处理时间
             processing_time = time.time() - start_time
