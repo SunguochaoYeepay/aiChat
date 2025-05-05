@@ -1,3 +1,20 @@
+## Quick Start Guide
+
+**Two simple startup scripts are provided:**
+
+1. **start_admin.bat** - Start Admin System
+   - URL: http://localhost:8000/admin/
+   - For: Managing knowledge base, model settings, etc.
+
+2. **start_api.bat** - Start API Service (with model loading)
+   - URL: http://localhost:8001/api/
+   - For: AI conversation and image analysis API
+   - Note: First startup takes a few minutes for model loading
+
+---
+
+# Qwen-VL-Chat Service
+
 # AI图像分析与管理系统
 
 基于Django和先进视觉语言模型的一体化图像分析与内容管理系统。
@@ -24,6 +41,26 @@
 - **数据库存储**：使用SQLite数据库存储知识库和配置信息
 - **WebSocket支持**：提供实时通信功能
 
+## 项目结构
+
+```
+design-helper/
+├── admin_system/          # Django后端服务
+├── chat_env/              # Python虚拟环境目录
+├── docs/                  # 文档目录
+│   ├── readme/            # 多语言说明文档
+│   └── 启动说明.md         # 启动说明文档
+├── logs/                  # 日志文件
+├── scripts/               # 脚本目录
+│   ├── launchers/         # 各种启动脚本
+│   ├── patches/           # 补丁文件
+│   ├── startup/           # 启动核心脚本
+│   └── tests/             # 测试脚本
+├── start.bat              # 中文主启动脚本
+├── start_en.bat           # 英文主启动脚本
+└── README.md              # 项目说明文档
+```
+
 ## 快速开始
 
 ### 环境要求
@@ -40,26 +77,52 @@ pip install -r requirements.txt
 
 ### 启动服务
 
-直接双击`start_service.bat`启动服务，或者使用命令行：
+本系统提供了简化的启动方式：
+
+#### 主启动脚本
+
+- `start.bat` - 中文主启动脚本
+- `start_en.bat` - 英文主启动脚本
+
+只需双击运行任一启动脚本，即可进入启动器界面。
+
+#### 启动器
+
+如果您想直接访问启动器，可以在`scripts/launchers`目录中找到：
+- `start_launcher.bat` - 中文界面启动器
+- `launcher.bat` - 英文界面启动器
+
+#### 推荐启动方式（一键启动）
+
+在启动器中选择推荐的启动方式：
+- `start_all_services.bat`（中文界面）或 `start_simple.bat`（英文界面）
+- 建议选择**完整启动**选项以获得最佳体验
+
+> 详细说明请参阅 `docs/启动说明.md` 文件
+
+#### 命令行启动（高级用户）
+
+也可以直接使用命令行启动服务：
 
 ```bash
 cd admin_system
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000 --settings=admin_system.minimal_settings
 ```
 
 启动后，可以通过以下地址访问系统：
 
 - 管理界面：http://127.0.0.1:8000/admin/
-- API接口：http://127.0.0.1:8000/status (状态检查)
+- API接口：http://127.0.0.1:8000/api/status (状态检查)
+- 聊天API：http://127.0.0.1:8000/api/v1/chat/completions
 
 ### API接口
 
 系统提供以下API接口：
 
-- **GET /status** - 获取服务状态
-- **POST /search** - 知识库搜索
-- **POST /v1/chat/completions** - 聊天完成
-- **POST /analyze** - 图像分析
+- **GET /api/status** - 获取服务状态
+- **POST /api/search** - 知识库搜索
+- **POST /api/v1/chat/completions** - 聊天完成
+- **POST /api/analyze** - 图像分析
 - **WebSocket /ws/chat** - 聊天WebSocket接口
 - **WebSocket /ws/analyze** - 图像分析WebSocket接口
 
@@ -339,11 +402,17 @@ MIT
 design-helper/
 ├── admin_system/          # Django后端服务
 ├── chat_env/              # Python虚拟环境目录
+├── docs/                  # 文档目录
+│   ├── readme/            # 多语言说明文档
+│   └── 启动说明.md         # 启动说明文档
 ├── logs/                  # 日志文件
 ├── scripts/               # 脚本目录
-│   ├── startup/           # 启动脚本
-│   └── test_scripts/      # 测试脚本
-├── start_service.bat      # 主服务启动批处理文件
+│   ├── launchers/         # 各种启动脚本
+│   ├── patches/           # 补丁文件
+│   ├── startup/           # 启动核心脚本
+│   └── tests/             # 测试脚本
+├── start.bat              # 中文主启动脚本
+├── start_en.bat           # 英文主启动脚本
 └── README.md              # 项目说明文档
 ```
 
