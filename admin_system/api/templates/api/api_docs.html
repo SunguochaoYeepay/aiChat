@@ -1,0 +1,202 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% load api_extras %}
+
+{% block title %}API文档{% endblock %}
+
+{% block extrastyle %}
+<style>
+    .api-docs {
+        margin: 20px;
+        font-family: Arial, sans-serif;
+    }
+    .api-stats {
+        display: flex;
+        margin-bottom: 20px;
+    }
+    .stat-box {
+        padding: 15px;
+        margin-right: 15px;
+        border-radius: 5px;
+        color: white;
+        min-width: 150px;
+    }
+    .stat-box h3 {
+        margin-top: 0;
+    }
+    .total-apis {
+        background-color: #007bff;
+    }
+    .active-apis {
+        background-color: #28a745;
+    }
+    .deprecated-apis {
+        background-color: #dc3545;
+    }
+    .api-group {
+        margin-bottom: 30px;
+        border: 1px solid #e0e0e0;
+        border-radius: 5px;
+    }
+    .group-header {
+        background-color: #f8f9fa;
+        padding: 10px 15px;
+        font-weight: bold;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    .api-list {
+        padding: 0;
+        margin: 0;
+        list-style: none;
+    }
+    .api-item {
+        padding: 15px;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    .api-item:last-child {
+        border-bottom: none;
+    }
+    .api-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .method-badge {
+        padding: 5px 10px;
+        border-radius: 4px;
+        color: white;
+        font-weight: bold;
+        margin-right: 10px;
+        min-width: 60px;
+        text-align: center;
+    }
+    .get {
+        background-color: #61affe;
+    }
+    .post {
+        background-color: #49cc90;
+    }
+    .put {
+        background-color: #fca130;
+    }
+    .delete {
+        background-color: #f93e3e;
+    }
+    .api-path {
+        font-family: monospace;
+        font-size: 16px;
+        margin-right: 10px;
+    }
+    .api-version {
+        font-size: 12px;
+        color: #6c757d;
+        margin-right: 10px;
+    }
+    .api-status {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        color: white;
+    }
+    .api-status.active {
+        background-color: #28a745;
+    }
+    .api-status.deprecated {
+        background-color: #dc3545;
+    }
+    .api-status.maintenance {
+        background-color: #ffc107;
+    }
+    .api-name {
+        margin-top: 0;
+        margin-bottom: 5px;
+    }
+    .api-description {
+        color: #6c757d;
+    }
+    .api-details {
+        margin-top: 15px;
+    }
+    .api-detail-title {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .json-view {
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: monospace;
+        overflow-x: auto;
+    }
+    .stats-summary {
+        margin-bottom: 10px;
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="api-docs">
+    <h1>API文档</h1>
+    
+    <div class="api-stats">
+        <div class="stat-box total-apis">
+            <h3>总API数</h3>
+            <div class="stat-value">{{ total_apis }}</div>
+        </div>
+        <div class="stat-box active-apis">
+            <h3>活跃API</h3>
+            <div class="stat-value">{{ active_apis }}</div>
+        </div>
+        <div class="stat-box deprecated-apis">
+            <h3>已弃用API</h3>
+            <div class="stat-value">{{ deprecated_apis }}</div>
+        </div>
+    </div>
+    
+    <div class="stats-summary">
+        <a href="/admin/api/apiendpoint/">管理API端点</a> | 
+        <a href="{% url 'api_import' %}">导入API</a>
+    </div>
+    
+    {% for group_name, endpoints in api_groups.items %}
+    <div class="api-group">
+        <div class="group-header">{{ group_name }}</div>
+        <ul class="api-list">
+            {% for endpoint in endpoints %}
+            <li class="api-item">
+                <div class="api-header">
+                    <div class="method-badge {{ endpoint.method|lower }}">{{ endpoint.method }}</div>
+                    <div class="api-path">{{ endpoint.path }}</div>
+                    <div class="api-version">v{{ endpoint.version }}</div>
+                    <div class="api-status {{ endpoint.status }}">{{ endpoint.get_status_display }}</div>
+                </div>
+                
+                <h3 class="api-name">{{ endpoint.name }}</h3>
+                <p class="api-description">{{ endpoint.description }}</p>
+                
+                <div class="api-details">
+                    {% if endpoint.request_schema %}
+                    <div class="api-detail-title">请求参数:</div>
+                    <pre class="json-view">{{ endpoint.request_schema|pprint }}</pre>
+                    {% endif %}
+                    
+                    {% if endpoint.response_schema %}
+                    <div class="api-detail-title">响应格式:</div>
+                    <pre class="json-view">{{ endpoint.response_schema|pprint }}</pre>
+                    {% endif %}
+                    
+                    <div class="api-detail-title">统计:</div>
+                    <div>调用次数: {{ endpoint.call_count }}</div>
+                    <div>错误次数: {{ endpoint.error_count }}</div>
+                    <div>平均响应时间: {{ endpoint.average_response_time|floatformat:2 }} ms</div>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% empty %}
+    <p>当前没有配置API端点。</p>
+    {% endfor %}
+</div>
+{% endblock %} 

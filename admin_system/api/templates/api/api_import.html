@@ -1,0 +1,191 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}导入API{% endblock %}
+
+{% block extrastyle %}
+<style>
+    .import-form {
+        max-width: 800px;
+        margin: 20px;
+        font-family: Arial, sans-serif;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    .form-control {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+    }
+    textarea.form-control {
+        min-height: 300px;
+    }
+    .or-divider {
+        text-align: center;
+        margin: 20px 0;
+        position: relative;
+    }
+    .or-divider:before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background-color: #e0e0e0;
+        z-index: -1;
+    }
+    .or-text {
+        background-color: white;
+        padding: 0 10px;
+        color: #6c757d;
+    }
+    .btn {
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .btn-primary {
+        background-color: #007bff;
+        color: white;
+        border: none;
+    }
+    .btn-primary:hover {
+        background-color: #0069d9;
+    }
+    .tips {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 4px;
+        margin-top: 20px;
+    }
+    .tips h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+    }
+    .tips ul {
+        margin-bottom: 0;
+    }
+    #result {
+        margin-top: 20px;
+        padding: 15px;
+        border-radius: 4px;
+        display: none;
+    }
+    .result-success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    .result-error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('import-form');
+        const result = document.getElementById('result');
+        
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // 创建FormData对象
+            const formData = new FormData(form);
+            
+            // 发送请求
+            fetch('{% url "api_import" %}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 显示结果
+                result.style.display = 'block';
+                
+                if (data.status === 'success') {
+                    result.className = 'result-success';
+                    result.innerHTML = '<strong>成功!</strong> ' + data.message;
+                } else {
+                    result.className = 'result-error';
+                    result.innerHTML = '<strong>错误!</strong> ' + data.message;
+                }
+            })
+            .catch(error => {
+                result.style.display = 'block';
+                result.className = 'result-error';
+                result.innerHTML = '<strong>错误!</strong> 请求处理失败: ' + error;
+            });
+        });
+        
+        // 获取CSRF令牌
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="import-form">
+    <h1>导入API</h1>
+    
+    <form id="import-form" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        
+        <div class="form-group">
+            <label for="openapi_file">上传OpenAPI规范文件 (JSON格式)</label>
+            <input type="file" id="openapi_file" name="openapi_file" class="form-control" accept=".json">
+        </div>
+        
+        <div class="or-divider">
+            <span class="or-text">或</span>
+        </div>
+        
+        <div class="form-group">
+            <label for="openapi_content">粘贴OpenAPI规范内容 (JSON格式)</label>
+            <textarea id="openapi_content" name="openapi_content" class="form-control" placeholder='{"openapi":"3.0.0","info":{"title":"API示例","version":"1.0.0"},"paths":{...}}'></textarea>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">导入API</button>
+    </form>
+    
+    <div id="result"></div>
+    
+    <div class="tips">
+        <h3>提示</h3>
+        <ul>
+            <li>仅支持OpenAPI 3.0规范的JSON格式</li>
+            <li>导入过程会自动跳过已存在的API端点</li>
+            <li>请确保OpenAPI规范中定义了请求方法、路径和参数</li>
+            <li>导入后请检查API端点并根据需要进行编辑</li>
+        </ul>
+    </div>
+</div>
+{% endblock %} 

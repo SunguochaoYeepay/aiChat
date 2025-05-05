@@ -14,4 +14,8 @@ urlpatterns = [
     path('v1/chat/completions', views.chat_completions, name='api_chat_completions'),
     path('search', views.search_knowledge_base, name='api_search_kb'),
     path('status', views.get_service_status, name='api_service_status'),
+    
+    # API管理界面
+    path('docs/', views.api_docs_view, name='api_docs'),
+    path('import/', views.api_import_view, name='api_import'),
 ] 

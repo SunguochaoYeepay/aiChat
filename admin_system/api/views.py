@@ -16,6 +16,13 @@ from core.model_service import get_service_status as get_model_status
 from management.models import KnowledgeBase
 from knowledge_base.services import search_knowledge_base as kb_vector_search
 
+# 导入API模型
+from .models import APIEndpoint, APIKey
+
+# 导入管理员装饰器
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render, redirect
+
 def index_view(request):
     """
     首页视图函数
@@ -215,3 +222,131 @@ def get_service_status(request):
         return JsonResponse({
             'error': f'获取服务状态时出错: {str(e)}'
         }, status=500) 
+
+# 添加新的API文档视图
+@staff_member_required
+def api_docs_view(request):
+    """
+    API文档视图
+    
+    为管理员提供API接口文档
+    """
+    # 获取所有API端点
+    endpoints = APIEndpoint.objects.all().order_by('path')
+    
+    # 按分类分组API端点
+    api_groups = {}
+    for endpoint in endpoints:
+        # 根据路径前缀分组
+        path_parts = endpoint.path.split('/')
+        if len(path_parts) > 1:
+            prefix = path_parts[1] if path_parts[0] == '' else path_parts[0]
+            if prefix not in api_groups:
+                api_groups[prefix] = []
+            api_groups[prefix].append(endpoint)
+        else:
+            # 没有前缀的放入根分组
+            if 'root' not in api_groups:
+                api_groups['root'] = []
+            api_groups['root'].append(endpoint)
+    
+    # 计算统计信息
+    total_apis = endpoints.count()
+    active_apis = endpoints.filter(status='active').count()
+    deprecated_apis = endpoints.filter(status='deprecated').count()
+    
+    # 渲染模板
+    return render(request, 'api/api_docs.html', {
+        'api_groups': api_groups,
+        'total_apis': total_apis,
+        'active_apis': active_apis,
+        'deprecated_apis': deprecated_apis,
+    })
+
+@staff_member_required
+@csrf_exempt
+def api_import_view(request):
+    """
+    API批量导入视图
+    
+    允许管理员从Swagger/OpenAPI规范批量导入API端点
+    """
+    if request.method == 'POST':
+        try:
+            # 处理上传的OpenAPI规范
+            if 'openapi_file' in request.FILES:
+                # 从文件中读取规范
+                openapi_file = request.FILES['openapi_file']
+                openapi_content = openapi_file.read().decode('utf-8')
+                openapi_data = json.loads(openapi_content)
+            elif 'openapi_content' in request.POST:
+                # 从文本区域中读取规范
+                openapi_content = request.POST['openapi_content']
+                openapi_data = json.loads(openapi_content)
+            else:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '未提供OpenAPI规范'
+                }, status=400)
+            
+            # 处理OpenAPI规范
+            import_results = process_openapi_spec(openapi_data)
+            
+            # 返回结果
+            return JsonResponse({
+                'status': 'success',
+                'imported': import_results['imported'],
+                'skipped': import_results['skipped'],
+                'message': f'成功导入 {import_results["imported"]} 个API, 跳过 {import_results["skipped"]} 个已存在的API'
+            })
+            
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'status': 'error',
+                'message': '无效的JSON格式'
+            }, status=400)
+            
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'导入API时出错: {str(e)}'
+            }, status=500)
+    
+    # GET请求显示导入表单
+    return render(request, 'api/api_import.html')
+
+def process_openapi_spec(openapi_data):
+    """处理OpenAPI规范，导入API端点"""
+    results = {'imported': 0, 'skipped': 0}
+    
+    # 处理OpenAPI 3.0规范
+    if 'openapi' in openapi_data and openapi_data['openapi'].startswith('3.'):
+        # 获取API信息
+        info = openapi_data.get('info', {})
+        # 获取API路径
+        paths = openapi_data.get('paths', {})
+        
+        # 处理每个API路径
+        for path, methods in paths.items():
+            for method, details in methods.items():
+                if method.lower() in ['get', 'post', 'put', 'delete']:
+                    # 检查API是否已存在
+                    if not APIEndpoint.objects.filter(path=path, method=method.upper()).exists():
+                        # 创建新的API端点
+                        endpoint = APIEndpoint(
+                            name=details.get('summary', f"{method.upper()} {path}"),
+                            description=details.get('description', ''),
+                            path=path,
+                            method=method.upper(),
+                            status='active',
+                            # 处理请求体
+                            request_schema=details.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema', {}),
+                            # 处理响应
+                            response_schema=details.get('responses', {}).get('200', {}).get('content', {}).get('application/json', {}).get('schema', {})
+                        )
+                        endpoint.save()
+                        results['imported'] += 1
+                    else:
+                        results['skipped'] += 1
+    
+    return results 
