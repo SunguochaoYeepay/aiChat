@@ -1,0 +1,500 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% load api_extras %}
+
+{% block title %}API接口测试{% endblock %}
+
+{% block extrastyle %}
+<style>
+    .api-test {
+        margin: 20px;
+        font-family: Arial, sans-serif;
+    }
+    .endpoint-select {
+        margin-bottom: 20px;
+    }
+    .endpoint-info {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #e0e0e0;
+    }
+    .endpoint-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .method-badge {
+        padding: 5px 10px;
+        border-radius: 4px;
+        color: white;
+        font-weight: bold;
+        margin-right: 10px;
+        min-width: 60px;
+        text-align: center;
+    }
+    .get {
+        background-color: #61affe;
+    }
+    .post {
+        background-color: #49cc90;
+    }
+    .put {
+        background-color: #fca130;
+    }
+    .delete {
+        background-color: #f93e3e;
+    }
+    .endpoint-path {
+        font-family: monospace;
+        font-size: 16px;
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    .form-control {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+    }
+    textarea.form-control {
+        min-height: 120px;
+        font-family: monospace;
+    }
+    .form-row {
+        display: flex;
+        margin-bottom: 15px;
+    }
+    .form-row .form-group {
+        flex: 1;
+        margin-right: 10px;
+        margin-bottom: 0;
+    }
+    .form-row .form-group:last-child {
+        margin-right: 0;
+    }
+    .btn {
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        border: none;
+    }
+    .btn-primary {
+        background-color: #007bff;
+        color: white;
+    }
+    .btn-primary:hover {
+        background-color: #0069d9;
+    }
+    .response-area {
+        margin-top: 20px;
+    }
+    .response-header {
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    .response-content {
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #e0e0e0;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: monospace;
+        white-space: pre-wrap;
+    }
+    .status-info {
+        margin-bottom: 10px;
+        padding: 8px;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    .status-success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    .status-error {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    .spinner {
+        border: 4px solid rgba(0, 0, 0, 0.1);
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border-left-color: #007bff;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 10px;
+    }
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+    .loading {
+        display: none;
+        margin-bottom: 15px;
+    }
+    .required-field::after {
+        content: " *";
+        color: #dc3545;
+    }
+    .api-key-section {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: #fff3cd;
+        border-radius: 4px;
+        border: 1px solid #ffeeba;
+    }
+    .api-key-select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+    }
+    /* 新增样式 */
+    .test-btn {
+        background-color: #28a745;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        text-decoration: none;
+        display: inline-block;
+        margin-left: 10px;
+    }
+    .test-btn:hover {
+        background-color: #218838;
+        text-decoration: none;
+        color: white;
+    }
+    .operation-column {
+        text-align: center;
+        min-width: 80px;
+    }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 获取元素
+        const endpointSelect = document.getElementById('endpoint-select');
+        const requestForm = document.getElementById('request-form');
+        const apiKeySelect = document.getElementById('api-key-select');
+        const customKeyInput = document.getElementById('custom-key');
+        const parameterContainer = document.getElementById('parameter-container');
+        const responseStatusEl = document.getElementById('response-status');
+        const responseHeadersEl = document.getElementById('response-headers');
+        const responseBodyEl = document.getElementById('response-body');
+        const loadingEl = document.getElementById('loading');
+        const endpointInfoEl = document.getElementById('endpoint-info');
+        
+        // 如果有预选的endpoint_id，自动触发change事件
+        if (endpointSelect.value) {
+            endpointSelect.dispatchEvent(new Event('change'));
+        }
+        
+        // 当选择的API端点变化时
+        endpointSelect.addEventListener('change', function() {
+            const endpointId = this.value;
+            if (endpointId) {
+                // 获取端点详情
+                fetch(`/api/endpoint/${endpointId}/`, {
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('获取端点详情失败: ' + response.status);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // 显示端点信息
+                        displayEndpointInfo(data);
+                        // 生成请求参数表单
+                        generateParameterForm(data);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching endpoint details:', error);
+                        alert('获取端点详情失败: ' + error.message);
+                    });
+            } else {
+                // 清空表单
+                endpointInfoEl.innerHTML = '';
+                parameterContainer.innerHTML = '';
+            }
+        });
+        
+        // 当API密钥选择变化时
+        apiKeySelect.addEventListener('change', function() {
+            const keyValue = this.value;
+            if (keyValue === 'custom') {
+                customKeyInput.style.display = 'block';
+            } else {
+                customKeyInput.style.display = 'none';
+            }
+        });
+        
+        // 提交表单
+        requestForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // 获取选中的端点
+            const endpointId = endpointSelect.value;
+            if (!endpointId) {
+                alert('请选择一个API端点');
+                return;
+            }
+            
+            // 获取API密钥
+            let apiKey = '';
+            if (apiKeySelect.value === 'custom') {
+                apiKey = document.getElementById('custom-key-value').value;
+            } else {
+                apiKey = apiKeySelect.value;
+            }
+            
+            // 清空之前的响应
+            responseStatusEl.innerHTML = '';
+            responseStatusEl.className = '';
+            responseHeadersEl.innerHTML = '';
+            responseBodyEl.innerHTML = '';
+            
+            // 显示加载中
+            loadingEl.style.display = 'block';
+            
+            // 收集表单数据
+            const formData = new FormData(requestForm);
+            const requestData = {};
+            
+            // 将formData转换为JSON对象
+            for (const [name, value] of formData.entries()) {
+                if (name.startsWith('param_')) {
+                    const paramName = name.replace('param_', '');
+                    requestData[paramName] = value;
+                } else if (name === 'request_body' && value.trim()) {
+                    try {
+                        // 尝试解析JSON
+                        const bodyJson = JSON.parse(value);
+                        // 将解析后的对象合并到requestData
+                        Object.assign(requestData, bodyJson);
+                    } catch (e) {
+                        // 如果不是有效的JSON，添加原始值
+                        requestData['request_body'] = value;
+                    }
+                }
+            }
+            
+            // 添加端点ID和API密钥
+            requestData['endpoint_id'] = endpointId;
+            if (apiKey) {
+                requestData['api_key'] = apiKey;
+            }
+            
+            // 发送测试请求
+            fetch('/api/test/execute/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => {
+                // 隐藏加载中
+                loadingEl.style.display = 'none';
+                
+                // 显示状态信息
+                const statusClass = response.ok ? 'status-success' : 'status-error';
+                responseStatusEl.className = `status-info ${statusClass}`;
+                responseStatusEl.innerHTML = `状态: ${response.status} ${response.statusText}`;
+                
+                // 显示响应头
+                const headers = [];
+                response.headers.forEach((value, name) => {
+                    headers.push(`${name}: ${value}`);
+                });
+                responseHeadersEl.textContent = headers.join('\n');
+                
+                // 根据内容类型处理响应体
+                const contentType = response.headers.get('Content-Type') || '';
+                if (contentType.includes('application/json')) {
+                    return response.json().then(data => {
+                        // 格式化JSON
+                        responseBodyEl.textContent = JSON.stringify(data, null, 2);
+                    });
+                } else {
+                    return response.text().then(text => {
+                        responseBodyEl.textContent = text;
+                    });
+                }
+            })
+            .catch(error => {
+                // 隐藏加载中
+                loadingEl.style.display = 'none';
+                
+                // 显示错误信息
+                responseStatusEl.className = 'status-info status-error';
+                responseStatusEl.innerHTML = '请求失败: ' + error.message;
+            });
+        });
+        
+        // 显示API端点信息
+        function displayEndpointInfo(endpoint) {
+            const methodClass = endpoint.method.toLowerCase();
+            
+            const html = `
+                <div class="endpoint-header">
+                    <div class="method-badge ${methodClass}">${endpoint.method}</div>
+                    <div class="endpoint-path">${endpoint.path}</div>
+                </div>
+                <div>${endpoint.description || '无描述'}</div>
+            `;
+            
+            endpointInfoEl.innerHTML = html;
+        }
+        
+        // 根据API端点生成参数表单
+        function generateParameterForm(endpoint) {
+            let html = '';
+            
+            if (endpoint.method === 'GET') {
+                // GET请求没有请求体，但可能有查询参数
+                html += '<p>GET请求不需要请求体参数</p>';
+                
+                // 如果有请求参数配置
+                if (endpoint.request_schema && endpoint.request_schema.properties) {
+                    html += '<h3>查询参数:</h3>';
+                    html += '<div class="form-row">';
+                    
+                    for (const [name, schema] of Object.entries(endpoint.request_schema.properties)) {
+                        const required = endpoint.request_schema.required && endpoint.request_schema.required.includes(name);
+                        html += `
+                            <div class="form-group">
+                                <label class="${required ? 'required-field' : ''}" for="param_${name}">${name}</label>
+                                <input type="text" id="param_${name}" name="param_${name}" class="form-control" placeholder="${schema.description || ''}">
+                            </div>
+                        `;
+                    }
+                    
+                    html += '</div>';
+                }
+            } else {
+                // POST, PUT, DELETE请求可能有请求体
+                html += '<h3>请求体:</h3>';
+                html += '<div class="form-group">';
+                html += '<label for="request_body">请求体 (JSON):</label>';
+                html += '<textarea id="request_body" name="request_body" class="form-control" placeholder="{\n  // 在此输入JSON请求体\n}"></textarea>';
+                html += '</div>';
+                
+                // 如果有请求参数配置，显示参数说明
+                if (endpoint.request_schema && endpoint.request_schema.properties) {
+                    html += '<div class="parameter-info">';
+                    html += '<h4>参数说明:</h4>';
+                    html += '<ul>';
+                    
+                    for (const [name, schema] of Object.entries(endpoint.request_schema.properties)) {
+                        const required = endpoint.request_schema.required && endpoint.request_schema.required.includes(name);
+                        html += `<li><strong>${name}</strong>${required ? ' (必填)' : ''}: ${schema.description || ''}</li>`;
+                    }
+                    
+                    html += '</ul>';
+                    html += '</div>';
+                }
+            }
+            
+            parameterContainer.innerHTML = html;
+        }
+        
+        // 获取CSRF Cookie
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="api-test">
+    <h1>API接口测试</h1>
+    
+    <form id="request-form">
+        <div class="endpoint-select">
+            <label for="endpoint-select">选择API端点:</label>
+            <select id="endpoint-select" class="form-control">
+                <option value="">-- 请选择API端点 --</option>
+                {% for endpoint in endpoints %}
+                <option value="{{ endpoint.id }}" {% if selected_endpoint_id == endpoint.id|stringformat:"s" %}selected{% endif %}>{{ endpoint.method }} {{ endpoint.path }} - {{ endpoint.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="api-key-section" style="display: none;">
+            <label for="api-key-select">API密钥:</label>
+            <select id="api-key-select" class="api-key-select">
+                <option value="">-- 无密钥 --</option>
+                {% for key in api_keys %}
+                <option value="{{ key.key }}">{{ key.name }}</option>
+                {% endfor %}
+                <option value="custom">使用自定义密钥</option>
+            </select>
+            
+            <div id="custom-key" style="display: none; margin-top: 10px;">
+                <input type="text" id="custom-key-value" class="form-control" placeholder="输入自定义API密钥">
+            </div>
+        </div>
+        
+        <div id="endpoint-info" class="endpoint-info"></div>
+        
+        <div id="parameter-container">
+            <!-- 参数表单将在此动态生成 -->
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div> 正在发送请求，请稍候...
+        </div>
+        
+        <button type="submit" class="btn btn-primary">发送请求</button>
+    </form>
+    
+    <div class="response-area">
+        <h2>响应结果</h2>
+        
+        <div id="response-status"></div>
+        
+        <div class="response-header">响应头:</div>
+        <pre class="response-content" id="response-headers"></pre>
+        
+        <div class="response-header">响应体:</div>
+        <pre class="response-content" id="response-body"></pre>
+    </div>
+</div>
+{% endblock %} 

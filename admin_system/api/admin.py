@@ -11,7 +11,7 @@ from .models import APIEndpoint, APILog, APIKey
 @admin.register(APIEndpoint)
 class APIEndpointAdmin(admin.ModelAdmin):
     """API接口的管理配置"""
-    list_display = ('name', 'method', 'path', 'version', 'status_tag', 'permission_tag', 'call_count', 'error_count', 'average_response_time')
+    list_display = ('name', 'method', 'path', 'version', 'status_tag', 'permission_tag', 'call_count', 'error_count', 'average_response_time', 'operations')
     list_filter = ('method', 'status', 'permission', 'version')
     search_fields = ('name', 'path', 'description')
     readonly_fields = ('call_count', 'error_count', 'average_response_time', 'created_at', 'updated_at')
@@ -43,6 +43,14 @@ class APIEndpointAdmin(admin.ModelAdmin):
         rows_updated = queryset.update(call_count=0, error_count=0, average_response_time=0)
         self.message_user(request, f'成功重置 {rows_updated} 个接口的统计数据')
     reset_statistics.short_description = "重置所选接口的统计数据"
+    
+    def operations(self, obj):
+        """添加操作列，包含测试按钮"""
+        return format_html(
+            '<a href="/api/test/?endpoint_id={}" class="button" target="_blank" style="background-color: #28a745; color: white; padding: 3px 8px; border-radius: 3px; text-decoration: none;">测试</a>',
+            obj.id
+        )
+    operations.short_description = '操作'
 
 @admin.register(APILog)
 class APILogAdmin(admin.ModelAdmin):

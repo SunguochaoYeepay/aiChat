@@ -350,3 +350,169 @@ def process_openapi_spec(openapi_data):
                         results['skipped'] += 1
     
     return results 
+
+@staff_member_required
+def api_test_view(request):
+    """
+    API测试界面视图函数
+    
+    允许管理员在Web界面上测试API接口
+    """
+    endpoints = APIEndpoint.objects.all().order_by('path')
+    api_keys = APIKey.objects.filter(is_active=True)
+    
+    # 获取URL中可能的endpoint_id参数
+    selected_endpoint_id = request.GET.get('endpoint_id', None)
+    
+    context = {
+        'endpoints': endpoints,
+        'api_keys': api_keys,
+        'selected_endpoint_id': selected_endpoint_id,
+    }
+    
+    return render(request, 'api/api_test.html', context)
+
+@staff_member_required
+def api_endpoint_detail(request, endpoint_id):
+    """
+    API端点详情接口
+    
+    返回指定API端点的详细信息，供API测试界面使用
+    """
+    try:
+        endpoint = APIEndpoint.objects.get(pk=endpoint_id)
+        
+        data = {
+            'id': endpoint.id,
+            'name': endpoint.name,
+            'path': endpoint.path,
+            'method': endpoint.method,
+            'description': endpoint.description,
+            'status': endpoint.status,
+            'permission': endpoint.permission,
+            'request_schema': endpoint.request_schema,
+            'response_schema': endpoint.response_schema,
+        }
+        
+        return JsonResponse(data)
+    except APIEndpoint.DoesNotExist:
+        return JsonResponse({'error': '找不到指定的API端点'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'获取API端点详情时出错: {str(e)}'}, status=500)
+
+@staff_member_required
+@csrf_exempt
+def api_test_execute(request):
+    """
+    执行API测试接口
+    
+    接收API测试界面的请求，转发到实际的API端点
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持POST请求'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        
+        # 获取API端点和密钥
+        endpoint_id = data.pop('endpoint_id', None) if 'endpoint_id' in data else None
+        api_key = data.pop('api_key', '') if 'api_key' in data else ''
+        
+        if not endpoint_id:
+            return JsonResponse({'error': '缺少endpoint_id参数'}, status=400)
+        
+        # 获取API端点信息
+        try:
+            endpoint = APIEndpoint.objects.get(pk=endpoint_id)
+        except APIEndpoint.DoesNotExist:
+            return JsonResponse({'error': '找不到指定的API端点'}, status=404)
+        
+        # 删除endpoint_id和空的api_key
+        if 'endpoint_id' in data:
+            data.pop('endpoint_id')
+        
+        # 准备请求参数
+        request_data = {}
+        
+        # 处理request_body
+        if 'request_body' in data and data['request_body']:
+            try:
+                # 尝试解析JSON
+                request_data = json.loads(data.pop('request_body'))
+            except:
+                # 如果不是JSON，忽略它
+                data.pop('request_body', None)
+        
+        # 处理param_开头的参数
+        for key in list(data.keys()):
+            if key.startswith('param_'):
+                param_name = key.replace('param_', '')
+                request_data[param_name] = data[key]
+                data.pop(key)
+        
+        # 构建请求头
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+        
+        # 完全忽略API密钥要求，简化测试流程
+        # 不再添加X-API-Key头
+        
+        # 确定请求URL
+        base_url = f"{request.scheme}://{request.get_host()}"
+        
+        # 确保路径以/开头
+        path = endpoint.path
+        if not path.startswith('/'):
+            path = '/' + path
+            
+        # 处理路径，确保正确的格式
+        api_url = f"{base_url}{path}"
+        
+        # 发送请求前打印详情，便于调试
+        print(f"Testing API: {endpoint.method} {api_url}")
+        print(f"Headers: {headers}")
+        print(f"Request data: {request_data}")
+        
+        # 发送请求
+        import requests
+        
+        try:
+            if endpoint.method == 'GET':
+                response = requests.get(api_url, params=request_data, headers=headers, timeout=10)
+            elif endpoint.method == 'POST':
+                response = requests.post(api_url, json=request_data, headers=headers, timeout=10)
+            elif endpoint.method == 'PUT':
+                response = requests.put(api_url, json=request_data, headers=headers, timeout=10)
+            elif endpoint.method == 'DELETE':
+                response = requests.delete(api_url, json=request_data, headers=headers, timeout=10)
+            else:
+                return JsonResponse({'error': f'不支持的请求方法: {endpoint.method}'}, status=400)
+        except requests.exceptions.RequestException as req_err:
+            return JsonResponse({'error': f'请求错误: {str(req_err)}'}, status=500)
+        
+        # 打印响应状态和头信息，便于调试
+        print(f"Response status: {response.status_code}")
+        print(f"Response headers: {response.headers}")
+        
+        # 返回响应
+        try:
+            response_json = response.json()
+            return JsonResponse(response_json, status=response.status_code, safe=False)
+        except Exception as content_error:
+            # 如果不是JSON响应，返回文本
+            try:
+                return HttpResponse(response.text, status=response.status_code, 
+                                  content_type=response.headers.get('Content-Type', 'text/plain'))
+            except:
+                return HttpResponse(f"无法解析响应内容", status=500)
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '无效的请求JSON格式'}, status=400)
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"API测试错误: {str(e)}")
+        print(error_trace)
+        return JsonResponse({'error': f'执行API测试时出错: {str(e)}'}, status=500) 

@@ -18,4 +18,9 @@ urlpatterns = [
     # API管理界面
     path('docs/', views.api_docs_view, name='api_docs'),
     path('import/', views.api_import_view, name='api_import'),
+    
+    # API测试相关接口
+    path('test/', views.api_test_view, name='api_test'),
+    path('endpoint/<int:endpoint_id>/', views.api_endpoint_detail, name='api_endpoint_detail'),
+    path('test/execute/', views.api_test_execute, name='api_test_execute'),
 ] 

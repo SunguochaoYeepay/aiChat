@@ -1,0 +1,25 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+<style>
+    /* 自定义样式 */
+    #api-test-link {
+        display: inline-block;
+        margin: 20px 0 0 20px;
+        padding: 10px 20px;
+        background-color: #417690;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    #api-test-link:hover {
+        background-color: #205067;
+    }
+</style>
+{% endblock %}
+
+{% block nav-global %}
+<a href="{% url 'api_test' %}" id="api-test-link">{% trans 'API接口测试' %}</a>
+{% endblock %} 

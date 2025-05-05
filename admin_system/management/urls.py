@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 
+app_name = 'management'
+
 urlpatterns = [
     path('import-knowledge-base/', views.import_knowledge_base, name='import_knowledge_base'),
     path('service/<str:action>/', views.manage_service, name='manage_service'),

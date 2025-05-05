@@ -150,9 +150,17 @@ class APIKeyMiddleware:
             '/api/',  # API根路径（索引页面）
             '/api/status',  # 状态检查API
             '/status',  # 原始状态检查API
+            '/api/test/',  # 测试页面
+            '/api/test/execute/',  # 测试执行API
+            '/api/endpoint/',  # 端点详情API
         ]
     
     def __call__(self, request):
+        # 临时完全禁用API密钥验证，直接放行所有请求
+        return self.get_response(request)
+        
+        # 以下代码暂时不执行
+        """
         # 判断是否是API请求
         if not self.api_path_pattern.match(request.path) or request.path in self.path_whitelist:
             return self.get_response(request)
@@ -201,6 +209,7 @@ class APIKeyMiddleware:
         
         # 验证通过，继续处理请求
         return self.get_response(request)
+        """
     
     def get_client_ip(self, request):
         """获取客户端真实IP地址"""

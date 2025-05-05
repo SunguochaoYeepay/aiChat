@@ -296,22 +296,22 @@ def custom_get_app_list(self, request):
         'models': [{
             'name': '提示词编辑器',
             'object_name': 'prompteditor',
-            'admin_url': reverse('prompt_editor'),
+            'admin_url': reverse('management:prompt_editor'),
             'view_only': True,
         }, {
             'name': '导入知识库',
             'object_name': 'importkb',
-            'admin_url': reverse('import_knowledge_base'),
+            'admin_url': reverse('management:import_knowledge_base'),
             'view_only': True,
         }, {
             'name': '向量搜索',
             'object_name': 'vectorsearch',
-            'admin_url': reverse('vector_search_ui'),
+            'admin_url': reverse('management:vector_search_ui'),
             'view_only': True,
         }, {
             'name': '模型服务状态',
             'object_name': 'modelstatus',
-            'admin_url': reverse('model_service_status'),
+            'admin_url': reverse('management:model_service_status'),
             'view_only': True,
         }]
     })

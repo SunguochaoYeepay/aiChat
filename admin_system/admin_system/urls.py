@@ -18,9 +18,13 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from api.views import api_test_view
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # 添加API测试页面路由
+    path('api/test/', api_test_view, name='api_test'),
+    
     path('management/', include('management.urls')),
     path('vector/', include('vector_search.urls')),
     # 集成API应用路由
