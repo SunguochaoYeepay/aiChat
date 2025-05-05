@@ -27,7 +27,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Starting API service (with model loading)...
-echo API URL: http://localhost:8001/api/
+echo API URL: http://localhost:8000/api/
 echo.
 echo [NOTE] First startup may take a few minutes for model loading
 echo [TIP] When you see "Model test completed" message, the model is loaded
@@ -40,19 +40,27 @@ python -c "import sys; sys.path.append('.'); import os; os.environ.setdefault('D
 echo Model loading has started, now starting API service...
 
 REM 启动API服务
-start cmd /k "title API Service && python manage.py runserver 8001 --settings=admin_system.minimal_settings"
+start cmd /k "title API Service && python manage.py runserver 8000 --settings=admin_system.minimal_settings"
 
 REM 等待几秒让服务启动
 echo Waiting for server to start...
-timeout /t 5 /nobreak > nul
+timeout /t 3 /nobreak > nul
 
-REM 运行单独的Python脚本触发模型加载
-echo Running model trigger script...
+REM 返回到项目根目录
 cd ..
-python api_trigger.py 8001
+
+REM 检查是否存在增强版model_loader.py脚本
+if exist model_loader.py (
+  echo Running enhanced model loader script...
+  python model_loader.py 8000 180
+) else (
+  REM 使用简单的api_trigger.py作为备选
+  echo Running legacy model trigger script...
+  python api_trigger.py 8000 60
+)
 
 echo.
-echo API service is running at http://localhost:8001/api/
+echo API service is running at http://localhost:8000/api/
 echo API is now fully ready to use!
 echo.
 echo Press any key to exit this window (API service will continue running)...
