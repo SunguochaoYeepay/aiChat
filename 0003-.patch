@@ -1,0 +1,259 @@
+From b0b78b10ef2e6e3669147b5a072e7bd0a9bbd45d Mon Sep 17 00:00:00 2001
+From: Design Helper Developer <user@example.com>
+Date: Sun, 4 May 2025 22:56:05 +0800
+Subject: [PATCH 3/9] =?UTF-8?q?=E4=B8=B0=E5=AF=8C=E5=90=AF=E5=8A=A8?=
+ =?UTF-8?q?=E6=96=B9=E5=BC=8F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ scripts/README.md                             | 52 +++++++++++++++++++
+ scripts/fixes/README.md                       | 35 +++++++++++++
+ .../fixes/fix_api_service.bat                 |  5 +-
+ .../fixes/fix_api_service.py                  |  0
+ .../test_scripts/run_test.bat                 |  3 ++
+ scripts/utils/install_dependencies.bat        | 21 ++++++++
+ start_api_service.bat                         | 50 ++++++++++++++++++
+ 7 files changed, 165 insertions(+), 1 deletion(-)
+ create mode 100644 scripts/README.md
+ create mode 100644 scripts/fixes/README.md
+ rename fix_api_service.bat => scripts/fixes/fix_api_service.bat (77%)
+ rename fix_api_service.py => scripts/fixes/fix_api_service.py (100%)
+ rename run_test.bat => scripts/test_scripts/run_test.bat (92%)
+ create mode 100644 scripts/utils/install_dependencies.bat
+ create mode 100644 start_api_service.bat
+
+diff --git a/scripts/README.md b/scripts/README.md
+new file mode 100644
+index 0000000..49c12ad
+--- /dev/null
++++ b/scripts/README.md
+@@ -0,0 +1,52 @@
++# 脚本目录
++
++此目录包含项目中使用的各种脚本，分为以下几个类别：
++
++## startup/
++
++启动相关脚本，用于启动API服务。
++
++- `startup.py` - 主启动脚本，用于加载模型并启动Django服务
++- `load_model_and_run_django.py` - 先加载模型，再启动Django服务的脚本
++- `load_model.py` - 仅加载模型的脚本
++
++## fixes/
++
++修复和优化脚本，用于解决各种问题。
++
++- `fix_api_service.py` - 修复API服务，解决"模型未加载"等问题
++- `fix_api_service.bat` - Windows批处理文件，用于执行修复脚本
++
++## test_scripts/
++
++测试相关脚本，用于测试各个功能。
++
++- `test_chat_api.py` - 测试聊天API是否正常工作
++- `setup_vector_search.py` - 设置和测试向量搜索功能
++- `run_test.bat` - 运行测试的批处理文件
++
++## utils/
++
++实用工具脚本，提供各种辅助功能。
++
++## 使用方法
++
++### 启动服务
++
++要启动API服务，请使用根目录下的`start_api_service.bat`，它提供了多种启动选项：
++
++1. 标准启动 - 使用原始启动脚本
++2. 修复模式 - 使用修复脚本，优化向量搜索和解决警告
++3. 仅测试API
++
++### 测试功能
++
++要测试特定功能：
++
++```bash
++# 测试聊天API
++python scripts/test_scripts/test_chat_api.py
++
++# 测试向量搜索功能
++python scripts/test_scripts/setup_vector_search.py
++``` 
+\ No newline at end of file
+diff --git a/scripts/fixes/README.md b/scripts/fixes/README.md
+new file mode 100644
+index 0000000..7061049
+--- /dev/null
++++ b/scripts/fixes/README.md
+@@ -0,0 +1,35 @@
++# 修复脚本
++
++此目录包含用于修复和优化系统的脚本。
++
++## 脚本列表
++
++- `fix_api_service.py` - 修复API服务的Python脚本
++  - 解决Django启动问题
++  - 初始化向量搜索功能
++  - 确保sentence-transformers库正确加载
++  - 修复"模型未加载"警告
++  
++- `fix_api_service.bat` - 运行修复脚本的Windows批处理文件
++
++## 使用方法
++
++### 运行修复脚本
++
++直接双击`fix_api_service.bat`或在命令行中运行：
++
++```bash
++cd scripts/fixes
++python fix_api_service.py
++```
++
++### 注意事项
++
++1. 运行修复脚本前，请确保已安装所有必要的依赖：
++   ```bash
++   pip install sentence-transformers faiss-cpu
++   ```
++
++2. 修复脚本会先执行数据库迁移，确保所有表格已创建
++
++3. 如果遇到"模型未加载"警告，请运行此修复脚本 
+\ No newline at end of file
+diff --git a/fix_api_service.bat b/scripts/fixes/fix_api_service.bat
+similarity index 77%
+rename from fix_api_service.bat
+rename to scripts/fixes/fix_api_service.bat
+index e7c75bb..3250d0a 100644
+--- a/fix_api_service.bat
++++ b/scripts/fixes/fix_api_service.bat
+@@ -1,11 +1,14 @@
+ @echo off
+ echo 正在启动API服务修复脚本...
+ 
++REM 切换到项目根目录
++cd ..\..\
++
+ REM 激活虚拟环境
+ call chat_env\Scripts\activate.bat
+ 
+ REM 运行修复脚本
+-python fix_api_service.py
++python scripts\fixes\fix_api_service.py
+ 
+ REM 如果脚本失败，暂停以查看错误信息
+ if %ERRORLEVEL% NEQ 0 (
+diff --git a/fix_api_service.py b/scripts/fixes/fix_api_service.py
+similarity index 100%
+rename from fix_api_service.py
+rename to scripts/fixes/fix_api_service.py
+diff --git a/run_test.bat b/scripts/test_scripts/run_test.bat
+similarity index 92%
+rename from run_test.bat
+rename to scripts/test_scripts/run_test.bat
+index d699d72..f79f1e3 100644
+--- a/run_test.bat
++++ b/scripts/test_scripts/run_test.bat
+@@ -1,6 +1,9 @@
+ @echo off
+ echo 启动测试流程...
+ 
++REM 切换到项目根目录
++cd ..\..\
++
+ REM 激活虚拟环境
+ call chat_env\Scripts\activate.bat
+ 
+diff --git a/scripts/utils/install_dependencies.bat b/scripts/utils/install_dependencies.bat
+new file mode 100644
+index 0000000..1ea9ca9
+--- /dev/null
++++ b/scripts/utils/install_dependencies.bat
+@@ -0,0 +1,21 @@
++@echo off
++echo ================================================================================
++echo            安装项目依赖
++echo ================================================================================
++
++REM 激活虚拟环境
++call ..\..\chat_env\Scripts\activate.bat
++
++echo 正在安装基本依赖...
++pip install -r ..\..\requirements.txt
++
++echo 正在安装向量搜索依赖...
++pip install sentence-transformers faiss-cpu
++
++echo 正在更新pip...
++python -m pip install --upgrade pip
++
++echo ================================================================================
++echo 依赖安装完成！现在可以启动API服务了。
++echo ================================================================================
++pause 
+\ No newline at end of file
+diff --git a/start_api_service.bat b/start_api_service.bat
+new file mode 100644
+index 0000000..d439b1d
+--- /dev/null
++++ b/start_api_service.bat
+@@ -0,0 +1,50 @@
++@echo off
++echo ================================================================================
++echo            Qwen-VL-Chat API 服务启动程序
++echo ================================================================================
++echo 此程序将预加载Qwen-VL-Chat模型并启动API服务
++
++REM 激活虚拟环境
++call chat_env\Scripts\activate.bat
++
++REM 确定启动方式
++:menu
++echo.
++echo 请选择启动方式:
++echo [1] 标准启动 (使用原始启动脚本)
++echo [2] 修复模式 (优化向量搜索和解决警告)
++echo [3] 仅测试API
++echo [4] 退出
++echo.
++set /p choice=请输入选项 (1-4): 
++
++if "%choice%"=="1" goto standard
++if "%choice%"=="2" goto fix
++if "%choice%"=="3" goto test
++if "%choice%"=="4" goto end
++
++echo 无效选项，请重新选择
++goto menu
++
++:standard
++echo.
++echo 正在使用标准模式启动...
++call scripts\startup\startup.py
++goto end
++
++:fix
++echo.
++echo 正在使用修复模式启动...
++call scripts\fixes\fix_api_service.py
++goto end
++
++:test
++echo.
++echo 正在测试API...
++call scripts\test_scripts\test_chat_api.py
++goto end
++
++:end
++echo.
++echo 程序已退出
++pause 
+\ No newline at end of file
+-- 
+2.49.0.windows.1
+

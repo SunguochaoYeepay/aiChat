@@ -1,0 +1,545 @@
+From c57a3a442651e7c572890cdb46c824e409ac3464 Mon Sep 17 00:00:00 2001
+From: Design Helper Developer <user@example.com>
+Date: Sun, 4 May 2025 22:42:13 +0800
+Subject: [PATCH 2/9] =?UTF-8?q?=E6=94=AF=E6=8C=81=E5=90=91=E9=87=8F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ admin_system/admin_system/minimal_settings.py |   5 +-
+ admin_system/db.sqlite3                       | Bin 192512 -> 192512 bytes
+ .../knowledge_base_metadata.json              |   1 +
+ .../vector_indices/knowledge_base_vectors.npy | Bin 0 -> 4736 bytes
+ admin_system/vector_search/services.py        | 108 ++++++++++++++++++
+ fix_api_service.bat                           |  14 +++
+ fix_api_service.py                            |  97 ++++++++++++++++
+ scripts/startup/load_model_and_run_django.py  |  23 ++++
+ scripts/test_scripts/setup_vector_search.py   |  81 +++++++++++++
+ 9 files changed, 328 insertions(+), 1 deletion(-)
+ create mode 100644 admin_system/vector_indices/knowledge_base_metadata.json
+ create mode 100644 admin_system/vector_indices/knowledge_base_vectors.npy
+ create mode 100644 admin_system/vector_search/services.py
+ create mode 100644 fix_api_service.bat
+ create mode 100644 fix_api_service.py
+ create mode 100644 scripts/test_scripts/setup_vector_search.py
+
+diff --git a/admin_system/admin_system/minimal_settings.py b/admin_system/admin_system/minimal_settings.py
+index 30a5193..11e777e 100644
+--- a/admin_system/admin_system/minimal_settings.py
++++ b/admin_system/admin_system/minimal_settings.py
+@@ -27,6 +27,9 @@ INSTALLED_APPS = [
+     'api',
+     'core',
+     'channels',
++    'management',
++    'knowledge_base',
++    'vector_search',
+ ]
+ 
+ MIDDLEWARE = [
+@@ -63,7 +66,7 @@ WSGI_APPLICATION = 'admin_system.wsgi.application'
+ DATABASES = {
+     'default': {
+         'ENGINE': 'django.db.backends.sqlite3',
+-        'NAME': ':memory:',
++        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+     }
+ }
+ 
+diff --git a/admin_system/db.sqlite3 b/admin_system/db.sqlite3
+index 0410dd0d17e5db43eb466ca9fd0adee2045fb74f..e6c835389dc10c7d00272bcc2418e6109994d1bc 100644
+GIT binary patch
+delta 1075
+zcmZp8z}@hGdxA7$-9#B@#=4COOXMZE_<l0*zvREdzni~|zngy+e+0iJzck;^&58<l
+z`B)VMm|YpCA53GCVPlrzXSU~@?wG_V$tugoY|l9TVFHt6bGUwcxIW|baDAq=Y>fOO
+z4E!QMom~9&jhT$x44USQOpcA3jk?)+`Q<sODe0;4Nr}a&&*v|FvA*r;uE|d)Onlki
+z|9s1$r+cO{Gd36*7@6uC0FjA;p^24=ft8W5p0Sasfw7s3Rg9yju8V6}OiF5TW_q4(
+zMruw$YEevLN^WLed~s!QNosCPS!!}geo=g8UP@+ieQI$Gs-^J|>0-USf=ZH&!!#{7
+zwInemu_RG1t2jT8i-CcGk^db75JACa$$~rl3WCg<oT#qg1<ErsOkm(C=G0)AFxgR{
+zNq(XzGZ%xX=Df<Lct_6cq<CXg9ozRWWctOpdF$jotgO{ad5O8xkG*G-tJhIb0tQ8L
+zQD#9&W`3TMm4Z@CsYOy!Du_%p1d^7?CP32Iz&NJV+&tA3B%W**Q)-%O2^29iwJ-;g
+z7G}muK!egUb5i3A5=$~b#-Q3B69dwSX{>{Rv0iS9QZ3dfGchtWHfZx;0(q;8xyc&r
+zEhAKeH*?LZW`cU?%zY*atR6BqGfx6KIn5O4d`k;+AW5ND&<#ZR!2~_s8JigzS+sL8
+zf<2K8jT=KWPbkh^4fDkD^-OYnsIfBr#Cj$fdkP&r{mgnM33-G=(cNieX>4w?ErE$e
+zfQy;`F$4d1{<r*(HwzYA<=5t9;S^;Ar6^_?%ZP~sC<aPphM+Xd%>Rjj{|`{hC!mHW
+W{Cq6ToQ%vMf{B@#lXKYwrUU>X@K9X<
+
+delta 98
+zcmZp8z}@hGdxA7$=|mZ4#?p-mOXNj3_$?XuU-Dn!-_2jf-_1XZKZ4(KvtWWOKPUeR
+z21i*wW_!lz4-=Rqo5S_n!}S@bhwC$~-OTdfkNl<$ECS0}5|{+QyhR%XmMvfk008&x
+BAUFU3
+
+diff --git a/admin_system/vector_indices/knowledge_base_metadata.json b/admin_system/vector_indices/knowledge_base_metadata.json
+new file mode 100644
+index 0000000..445a13f
+--- /dev/null
++++ b/admin_system/vector_indices/knowledge_base_metadata.json
+@@ -0,0 +1 @@
++{"document_ids": [1, 2, 3], "document_count": 3, "vector_dimension": 384}
+\ No newline at end of file
+diff --git a/admin_system/vector_indices/knowledge_base_vectors.npy b/admin_system/vector_indices/knowledge_base_vectors.npy
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1133a85ef87d548f82db2807320142dc346f5cf
+GIT binary patch
+literal 4736
+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
+Y1q<b)p>mx75?gF2{(%c9U0;X)1Nm0xvH$=8
+
+literal 0
+HcmV?d00001
+
+diff --git a/admin_system/vector_search/services.py b/admin_system/vector_search/services.py
+new file mode 100644
+index 0000000..eee89b8
+--- /dev/null
++++ b/admin_system/vector_search/services.py
+@@ -0,0 +1,108 @@
++"""
++向量搜索服务模块 - 提供向量搜索功能的简化接口
++"""
++import logging
++from .utils import (
++    get_embedding_model, 
++    text_to_vector,
++    create_vector_index,
++    add_document_to_index,
++    rebuild_vector_index,
++    vector_search,
++    import_knowledge_base_to_vector
++)
++from .models import VectorIndex
++
++logger = logging.getLogger(__name__)
++
++# 默认向量维度
++DEFAULT_VECTOR_DIMENSION = 384
++
++def initialize_vector_search():
++    """
++    初始化向量搜索环境
++    """
++    try:
++        # 加载嵌入模型，这将初始化sentence-transformers
++        model = get_embedding_model()
++        logger.info(f"成功加载向量嵌入模型，向量维度: {model.get_sentence_embedding_dimension()}")
++        
++        # 检查知识库索引是否存在，如果不存在则创建
++        try:
++            kb_index = VectorIndex.objects.get(name="knowledge_base")
++            logger.info(f"找到知识库向量索引: {kb_index.name}，包含 {kb_index.document_count} 个文档")
++        except VectorIndex.DoesNotExist:
++            # 导入知识库内容到向量索引
++            try:
++                result = import_knowledge_base_to_vector()
++                logger.info(f"创建了知识库向量索引，导入了 {result['document_count']} 个文档")
++            except Exception as e:
++                logger.warning(f"导入知识库内容到向量索引时出错: {str(e)}")
++                # 创建空索引
++                kb_index = create_vector_index("knowledge_base", "知识库向量索引")
++                logger.info(f"创建了空的知识库向量索引: {kb_index.name}")
++        
++        return True
++    except Exception as e:
++        logger.exception(f"初始化向量搜索环境时出错: {str(e)}")
++        return False
++
++def create_embeddings(texts):
++    """
++    为文本列表创建向量嵌入
++    
++    Args:
++        texts: 文本列表
++        
++    Returns:
++        list: 向量嵌入列表
++    """
++    try:
++        model = get_embedding_model()
++        vectors = model.encode(texts)
++        return vectors.tolist()
++    except Exception as e:
++        logger.exception(f"创建向量嵌入时出错: {str(e)}")
++        return None
++
++def search_knowledge_base(query, top_k=5):
++    """
++    搜索知识库
++    
++    Args:
++        query: 查询文本
++        top_k: 返回结果数量
++        
++    Returns:
++        list: 搜索结果列表
++    """
++    try:
++        # 获取知识库索引
++        try:
++            kb_index = VectorIndex.objects.get(name="knowledge_base")
++        except VectorIndex.DoesNotExist:
++            logger.warning("知识库向量索引不存在，尝试创建")
++            initialize_vector_search()
++            try:
++                kb_index = VectorIndex.objects.get(name="knowledge_base")
++            except VectorIndex.DoesNotExist:
++                logger.error("无法创建知识库向量索引")
++                return []
++        
++        # 执行向量搜索
++        results = vector_search(kb_index, query, top_k)
++        
++        # 格式化结果
++        formatted_results = []
++        for result in results:
++            formatted_results.append({
++                'id': result['document_id'].split('_')[-1],  # 从kb_123中提取123
++                'content': result['text'],
++                'metadata': result['metadata'],
++                'similarity': result['score']
++            })
++        
++        return formatted_results
++    except Exception as e:
++        logger.exception(f"搜索知识库时出错: {str(e)}")
++        return [] 
+\ No newline at end of file
+diff --git a/fix_api_service.bat b/fix_api_service.bat
+new file mode 100644
+index 0000000..e7c75bb
+--- /dev/null
++++ b/fix_api_service.bat
+@@ -0,0 +1,14 @@
++@echo off
++echo 正在启动API服务修复脚本...
++
++REM 激活虚拟环境
++call chat_env\Scripts\activate.bat
++
++REM 运行修复脚本
++python fix_api_service.py
++
++REM 如果脚本失败，暂停以查看错误信息
++if %ERRORLEVEL% NEQ 0 (
++    echo 脚本执行出错，请查看上方错误信息
++    pause
++) 
+\ No newline at end of file
+diff --git a/fix_api_service.py b/fix_api_service.py
+new file mode 100644
+index 0000000..c911960
+--- /dev/null
++++ b/fix_api_service.py
+@@ -0,0 +1,97 @@
++"""
++修复API服务启动问题的简化脚本
++"""
++import os
++import sys
++import subprocess
++import logging
++from pathlib import Path
++
++# 设置日志
++logging.basicConfig(
++    level=logging.INFO,
++    format='%(asctime)s - %(levelname)s - %(message)s'
++)
++logger = logging.getLogger(__name__)
++
++def initialize_vector_search():
++    """初始化向量搜索功能"""
++    logger.info("正在初始化向量搜索功能...")
++    try:
++        from vector_search.services import initialize_vector_search as init_vs
++        result = init_vs()
++        if result:
++            logger.info("向量搜索功能初始化成功")
++        else:
++            logger.warning("向量搜索功能初始化失败，但系统将继续启动")
++    except ImportError:
++        logger.warning("找不到向量搜索模块，确保已安装sentence-transformers和faiss-cpu")
++    except Exception as e:
++        logger.exception(f"初始化向量搜索时出错: {str(e)}")
++
++def main():
++    try:
++        # 获取项目根目录和Django项目目录
++        root_dir = Path.cwd()
++        admin_system_dir = root_dir / "admin_system"
++        
++        if not admin_system_dir.exists():
++            logger.error(f"Django项目目录不存在: {admin_system_dir}")
++            return False
++            
++        # 切换到Django项目目录
++        os.chdir(str(admin_system_dir))
++        logger.info(f"已切换到Django项目目录: {admin_system_dir}")
++        
++        # 添加项目路径到Python路径
++        sys.path.insert(0, str(admin_system_dir.parent))  # 添加项目根目录
++        sys.path.insert(0, str(admin_system_dir))  # 添加Django项目目录
++        
++        # 设置环境变量
++        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'admin_system.minimal_settings')
++        
++        # 运行数据库迁移
++        logger.info("正在运行数据库迁移...")
++        migrate_cmd = [sys.executable, "manage.py", "migrate", "--settings=admin_system.minimal_settings"]
++        result = subprocess.run(migrate_cmd, capture_output=True, text=True)
++        
++        if result.returncode != 0:
++            logger.error(f"数据库迁移失败: {result.stderr}")
++        else:
++            logger.info("数据库迁移成功")
++        
++        # 检查模型路径
++        model_path = "D:/AI-DEV/models/Qwen-VL-Chat-Int4"
++        if not os.path.exists(model_path):
++            logger.warning(f"模型路径不存在: {model_path}")
++            logger.warning("请确保模型已下载到正确位置")
++        else:
++            logger.info(f"模型路径有效: {model_path}")
++        
++        # 初始化Django
++        try:
++            import django
++            django.setup()
++            logger.info("Django环境初始化成功")
++            
++            # 初始化向量搜索
++            initialize_vector_search()
++        except Exception as e:
++            logger.exception(f"初始化Django环境时出错: {str(e)}")
++            logger.warning("跳过向量搜索初始化，继续启动服务...")
++        
++        # 启动Django服务
++        logger.info("启动API服务...")
++        django_cmd = [sys.executable, "manage.py", "runserver", "0.0.0.0:8000", 
++                     "--settings=admin_system.minimal_settings"]
++        
++        subprocess.call(django_cmd)
++        return True
++        
++    except Exception as e:
++        logger.exception(f"启动过程中出错: {e}")
++        return False
++
++if __name__ == "__main__":
++    logger.info("=== API服务修复启动脚本 ===")
++    main() 
+\ No newline at end of file
+diff --git a/scripts/startup/load_model_and_run_django.py b/scripts/startup/load_model_and_run_django.py
+index 2ae5190..68b82ee 100644
+--- a/scripts/startup/load_model_and_run_django.py
++++ b/scripts/startup/load_model_and_run_django.py
+@@ -52,12 +52,35 @@ def wait_for_model_load(timeout=600):
+     logger.error(f"模型加载超时，已等待{timeout}秒")
+     return False
+ 
++def run_migrate():
++    """运行数据库迁移命令"""
++    logger.info("运行数据库迁移...")
++    os.chdir(str(admin_system_dir))
++    
++    try:
++        # 运行migrate命令
++        result = subprocess.run(
++            [sys.executable, "manage.py", "migrate", "--settings=admin_system.minimal_settings"],
++            capture_output=True,
++            text=True,
++            check=True
++        )
++        logger.info(f"迁移成功: {result.stdout}")
++        return True
++    except subprocess.CalledProcessError as e:
++        logger.error(f"迁移失败: {e.stderr}")
++        return False
++
+ try:
+     logger.info("初始化Django...")
+     import django
+     django.setup()
+     logger.info("Django初始化完成")
+     
++    # 运行数据库迁移
++    if not run_migrate():
++        logger.warning("数据库迁移失败，但将继续尝试启动服务")
++    
+     # 预加载模型
+     logger.info("\n预加载模型...")
+     from core.model_service import init_model, get_service_status
+diff --git a/scripts/test_scripts/setup_vector_search.py b/scripts/test_scripts/setup_vector_search.py
+new file mode 100644
+index 0000000..7543199
+--- /dev/null
++++ b/scripts/test_scripts/setup_vector_search.py
+@@ -0,0 +1,81 @@
++"""
++设置和测试向量搜索功能
++"""
++import os
++import sys
++import logging
++from pathlib import Path
++
++# 设置日志
++logging.basicConfig(
++    level=logging.INFO,
++    format='%(asctime)s - %(levelname)s - %(message)s'
++)
++logger = logging.getLogger(__name__)
++
++def main():
++    try:
++        # 获取项目根目录和Django项目目录
++        root_dir = Path.cwd()
++        admin_system_dir = root_dir / "admin_system"
++        
++        # 添加项目路径到系统路径
++        sys.path.append(str(admin_system_dir))
++        
++        # 设置Django环境
++        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'admin_system.minimal_settings')
++        
++        # 初始化Django
++        logger.info("初始化Django环境...")
++        import django
++        django.setup()
++        
++        # 导入向量搜索模块
++        logger.info("导入向量搜索模块...")
++        try:
++            from vector_search.services import initialize_vector_search, create_embeddings
++            
++            # 测试句子转换器库
++            logger.info("测试sentence-transformers库...")
++            import sentence_transformers
++            logger.info(f"sentence-transformers 版本: {sentence_transformers.__version__}")
++            
++            # 测试初始化向量搜索
++            logger.info("初始化向量搜索...")
++            initialize_vector_search()
++            
++            # 尝试创建一些示例嵌入
++            logger.info("创建示例嵌入...")
++            test_texts = [
++                "这是一个测试文本，用于生成向量嵌入",
++                "向量搜索是信息检索的强大工具",
++                "通过语义相似度匹配文档内容"
++            ]
++            
++            embeddings = create_embeddings(test_texts)
++            
++            if embeddings is not None and len(embeddings) == len(test_texts):
++                logger.info(f"成功生成 {len(embeddings)} 个嵌入向量")
++                logger.info(f"每个向量维度: {len(embeddings[0])}")
++                logger.info("向量搜索功能正常工作")
++            else:
++                logger.error("生成嵌入向量失败")
++                
++        except ImportError as e:
++            logger.error(f"导入错误: {str(e)}")
++            logger.error("请确保已安装 sentence-transformers 库和其他所需依赖")
++        except Exception as e:
++            logger.exception(f"向量搜索设置过程中出错: {str(e)}")
++            
++        return True
++    except Exception as e:
++        logger.exception(f"程序执行出错: {str(e)}")
++        return False
++
++if __name__ == "__main__":
++    logger.info("=== 向量搜索设置脚本 ===")
++    success = main()
++    if success:
++        logger.info("向量搜索设置完成")
++    else:
++        logger.error("向量搜索设置失败") 
+\ No newline at end of file
+-- 
+2.49.0.windows.1
+

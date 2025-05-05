@@ -1,0 +1,934 @@
+From b2e9d63573f6d8851b7dd08a85a2cea2a2452160 Mon Sep 17 00:00:00 2001
+From: Design Helper Developer <user@example.com>
+Date: Sun, 4 May 2025 22:29:57 +0800
+Subject: [PATCH 1/9] =?UTF-8?q?=E4=BC=98=E5=8C=96=E5=90=AF=E5=8A=A8?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ README.md                                    |  54 ++++-
+ admin_system/core/model_service.py           | 221 ++++++++++++-------
+ admin_system/core/text_processing.py         |  27 ++-
+ admin_system/core/wrappers/model_wrapper.py  |  83 +++++--
+ run_test.bat                                 |  26 +++
+ scripts/startup/load_model_and_run_django.py |  98 ++++++--
+ scripts/test_scripts/test_chat_api.py        | 126 ++++++++---
+ 7 files changed, 479 insertions(+), 156 deletions(-)
+ create mode 100644 run_test.bat
+
+diff --git a/README.md b/README.md
+index e66606e..752cc0a 100644
+--- a/README.md
++++ b/README.md
+@@ -431,4 +431,56 @@ chat_env\Scripts\python.exe scripts\test_scripts\test_chat_api.py
+ - PyTorch (CUDA支持版本)
+ - transformers
+ - auto-gptq
+-- optimum 
+\ No newline at end of file
++- optimum 
++
++# 系统优化说明
++
++## 最近的优化内容
++
++最近我们对系统进行了一系列优化，特别是解决了"模型未加载"的问题：
++
++### 1. 模型服务模块优化
++- 添加了线程锁防止并发加载模型
++- 增加了模型测试功能确保加载成功
++- 增强了错误处理和日志记录
++- 添加了模型加载状态检查
++
++### 2. API服务优化
++- 改进了处理模型未加载情况的逻辑
++- 增加了详细日志记录
++- 优化了错误消息
++
++### 3. 启动脚本优化
++- 添加了等待模型加载完成的机制
++- 增加了模型加载验证步骤
++- 使用标准日志替代简单的print输出
++
++### 4. 测试脚本优化
++- 增加了重试机制
++- 添加了服务状态检查
++- 提供了更详细的错误信息和日志
++
++## 如何使用
++
++使用以下方法启动和测试系统：
++
++1. 运行 `run_test.bat` 脚本，这将启动服务并自动测试API
++2. 或者分步执行：
++   - `python scripts/startup/load_model_and_run_django.py` 启动服务
++   - `python scripts/test_scripts/test_chat_api.py` 测试API
++
++## 常见问题排查
++
++如果遇到问题，请检查：
++
++1. 查看 `model_startup.log` 日志文件了解模型加载状态
++2. 确认模型路径 `D:/AI-DEV/models/Qwen-VL-Chat-Int4` 是否正确
++3. 检查GPU是否可用和显存是否充足
++4. 查看Django服务是否正常启动在8000端口
++
++## 后续优化方向
++
++1. 实现更健壮的模型加载机制
++2. 添加模型加载进度反馈
++3. 优化内存使用
++4. 增加更完善的监控和自我恢复机制 
+\ No newline at end of file
+diff --git a/admin_system/core/model_service.py b/admin_system/core/model_service.py
+index 8045ff4..6fa8ac4 100644
+--- a/admin_system/core/model_service.py
++++ b/admin_system/core/model_service.py
+@@ -6,19 +6,27 @@
+ import os
+ import time
+ import torch
++import logging
+ from django.conf import settings
+ from pathlib import Path
+ 
+ from .wrappers.model_wrapper import ModelWrapper
+ 
++# 设置日志
++logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
++logger = logging.getLogger(__name__)
++
+ # 全局变量
+ model = None
+ tokenizer = None
+ model_wrapper = None
+ model_load_time = None
+ model_config = None
++_is_loading = False  # 新增标志，防止并发加载
+ 
+-
++# 用于同步的锁对象
++import threading
++_model_lock = threading.Lock()
+ 
+ def init_model(model_path=None, device=None, precision=None):
+     """
+@@ -32,99 +40,119 @@ def init_model(model_path=None, device=None, precision=None):
+     Returns:
+         dict: 包含加载状态和时间的字典
+     """
+-    global model, tokenizer, model_wrapper, model_load_time, model_config
+-    
+-    # 如果没有提供配置，则使用默认值或从数据库获取
+-    if not model_path:
+-        from management.models import ModelConfig
+-        try:
+-            active_config = ModelConfig.objects.get(is_active=True)
+-            model_path = active_config.model_path
+-            device = active_config.device
+-            precision = active_config.precision
+-            model_config = active_config
+-        except ModelConfig.DoesNotExist:
+-            # 使用默认值
+-            model_path = getattr(settings, 'DEFAULT_MODEL_PATH', 'D:/AI-DEV/models/Qwen-VL-Chat-Int4')
+-            device = getattr(settings, 'DEFAULT_DEVICE', 'cuda')
+-            precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
++    global model, tokenizer, model_wrapper, model_load_time, model_config, _is_loading
+     
+-    try:
+-        # 记录加载开始时间
+-        load_start = time.time()
+-        
+-        # 创建模型包装器实例
+-        model_wrapper = ModelWrapper(model_path, device, precision)
++    # 使用锁确保并发安全
++    with _model_lock:
++        # 如果正在加载中，则返回
++        if _is_loading:
++            return {
++                'status': 'loading',
++                'message': '模型正在加载中，请稍候'
++            }
++            
++        _is_loading = True
+         
+-        # 加载模型
+-        if model_wrapper.load():
+-            # 设置全局变量
+-            model = model_wrapper.model
+-            tokenizer = model_wrapper.tokenizer
++        try:
++            # 如果没有提供配置，则使用默认值或从数据库获取
++            if not model_path:
++                from management.models import ModelConfig
++                try:
++                    active_config = ModelConfig.objects.get(is_active=True)
++                    model_path = active_config.model_path
++                    device = active_config.device
++                    precision = active_config.precision
++                    model_config = active_config
++                except ModelConfig.DoesNotExist:
++                    # 使用默认值
++                    model_path = getattr(settings, 'DEFAULT_MODEL_PATH', 'D:/AI-DEV/models/Qwen-VL-Chat-Int4')
++                    device = getattr(settings, 'DEFAULT_DEVICE', 'cuda')
++                    precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
++                    
++            logger.info(f"开始加载模型: {model_path}")
++            logger.info(f"设备: {device}, 精度: {precision}")
+             
+-            # 计算加载时间
+-            model_load_time = time.time() - load_start
++            # 记录加载开始时间
++            load_start = time.time()
+             
+-            return {
+-                'status': 'success',
+-                'message': f'模型加载成功，耗时: {model_load_time:.2f}秒',
+-                'model_path': model_path,
+-                'device': device,
+-                'precision': precision
+-            }
+-        else:
++            # 创建模型包装器实例
++            model_wrapper = ModelWrapper(model_path, device, precision)
++            
++            # 加载模型
++            if model_wrapper.load():
++                # 设置全局变量
++                model = model_wrapper.model
++                tokenizer = model_wrapper.tokenizer
++                
++                # 计算加载时间
++                model_load_time = time.time() - load_start
++                
++                logger.info(f"模型加载成功，耗时: {model_load_time:.2f}秒")
++                
++                # 测试模型是否可用
++                test_result = test_model()
++                if not test_result['success']:
++                    logger.error(f"模型加载成功但测试失败: {test_result['message']}")
++                    return {
++                        'status': 'error',
++                        'message': f'模型加载成功但测试失败: {test_result["message"]}'
++                    }
++                
++                return {
++                    'status': 'success',
++                    'message': f'模型加载成功，耗时: {model_load_time:.2f}秒',
++                    'model_path': model_path,
++                    'device': device,
++                    'precision': precision
++                }
++            else:
++                logger.error("模型加载失败")
++                return {
++                    'status': 'error',
++                    'message': '模型加载失败，请查看日志获取详细信息'
++                }
++        except Exception as e:
++            logger.exception(f"模型加载异常: {str(e)}")
+             return {
+                 'status': 'error',
+-                'message': '模型加载失败，请查看日志获取详细信息'
++                'message': f'模型加载失败: {str(e)}'
+             }
+-    except Exception as e:
++        finally:
++            _is_loading = False
++
++def test_model():
++    """
++    简单测试模型是否可用
++    
++    Returns:
++        dict: 测试结果
++    """
++    global model, tokenizer
++    
++    if model is None or tokenizer is None:
+         return {
+-            'status': 'error',
+-            'message': f'模型加载失败: {str(e)}'
++            'success': False,
++            'message': '模型或分词器为空'
+         }
+         
+-        # 检查GPU可用性
+-        if device == 'cuda' and not torch.cuda.is_available():
+-            device = 'cpu'
+-            print("警告: GPU不可用，将使用CPU模式")
+-        
+-        # 确定torch数据类型
+-        torch_dtype = torch.float16 if precision == 'float16' else torch.float32
+-        
+-        # 加载tokenizer
+-        print(f"正在加载模型 {model_path}...")
+-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+-        
+-        # 加载模型
+-        model = AutoModelForCausalLM.from_pretrained(
+-            model_path,
+-            trust_remote_code=True,
+-            torch_dtype=torch_dtype,
+-            low_cpu_mem_usage=True,
+-            use_cache=True
+-        )
+-        
+-        # 将模型移至指定设备
+-        if device == 'cuda':
+-            model = model.to(device)
+-        
+-        # 将模型设置为评估模式
+-        model = model.eval()
+-        
+-        # 计算加载时间
+-        model_load_time = time.time() - load_start
++    try:
++        # 简单的模型测试，尝试生成一个短文本
++        result, _ = model.chat(tokenizer, "你好", history=[])
+         
+-        return {
+-            'status': 'success',
+-            'message': f'模型加载成功，耗时: {model_load_time:.2f}秒',
+-            'model_path': model_path,
+-            'device': device,
+-            'precision': precision
+-        }
++        if result and isinstance(result, str):
++            return {
++                'success': True,
++                'message': '模型测试成功'
++            }
++        else:
++            return {
++                'success': False,
++                'message': f'模型返回了意外的结果类型: {type(result)}'
++            }
+     except Exception as e:
+         return {
+-            'status': 'error',
+-            'message': f'模型加载失败: {str(e)}'
++            'success': False,
++            'message': f'模型测试时出错: {str(e)}'
+         }
+ 
+ def reload_model(model_id=None):
+@@ -187,6 +215,17 @@ def get_service_status():
+     Returns:
+         dict: 包含服务状态信息的字典
+     """
++    global _is_loading, model, tokenizer, model_wrapper
++    
++    # 如果正在加载，返回加载中状态
++    if _is_loading:
++        return {
++            'status': 'loading',
++            'message': '模型正在加载中，请稍候',
++            'gpu_available': torch.cuda.is_available(),
++            'model_loaded': False
++        }
++    
+     # 检查模型是否已加载
+     if model is None or tokenizer is None:
+         return {
+@@ -233,11 +272,27 @@ def get_model():
+     Returns:
+         tuple: (model, tokenizer) 元组
+     """
+-    global model, tokenizer, model_wrapper
++    global model, tokenizer, model_wrapper, _is_loading
++    
++    # 如果正在加载中，等待加载完成
++    if _is_loading:
++        logger.info("模型正在加载中，等待...")
++        # 等待一段时间
++        for _ in range(10):  # 最多等待10秒
++            time.sleep(1)
++            if not _is_loading:
++                break
+     
+     # 如果模型未加载，则加载模型
+     if model is None or tokenizer is None:
+-        init_model()
++        logger.info("模型未加载，开始加载...")
++        result = init_model()
++        logger.info(f"模型加载结果: {result}")
++        
++        # 再次检查模型是否已加载
++        if model is None or tokenizer is None:
++            logger.error("模型加载失败，无法获取模型实例")
++            return None, None
+     
+     # 如果有模型包装器，则返回其模型和分词器
+     if model_wrapper is not None:
+diff --git a/admin_system/core/text_processing.py b/admin_system/core/text_processing.py
+index 2f02a60..9603082 100644
+--- a/admin_system/core/text_processing.py
++++ b/admin_system/core/text_processing.py
+@@ -4,8 +4,12 @@
+ 此模块提供文本对话、聊天历史管理等功能，支持与大模型的文本交互。
+ """
+ import time
++import logging
+ from .model_service import get_model
+ 
++# 设置日志
++logger = logging.getLogger(__name__)
++
+ def chat_completion(messages, stream=False):
+     """
+     生成聊天响应
+@@ -24,6 +28,14 @@ def chat_completion(messages, stream=False):
+         # 获取模型和tokenizer
+         model, tokenizer = get_model()
+         
++        # 如果模型或tokenizer为None，表示加载失败
++        if model is None or tokenizer is None:
++            logger.error("无法获取模型或分词器")
++            return {
++                "error": "模型未正确加载，请检查服务日志",
++                "processing_time": "N/A"
++            }
++        
+         # 处理历史消息
+         history = []
+         prompt = ""
+@@ -62,13 +74,18 @@ def chat_completion(messages, stream=False):
+             # 这里使用生成器实现流式响应
+             def generate_stream():
+                 try:
+-                    if model is None or not hasattr(model, 'chat'):
+-                        yield "模型未正确加载或不支持chat方法"
++                    if model is None:
++                        yield "模型未加载"
++                        return
++                    
++                    if not hasattr(model, 'chat'):
++                        yield "模型不支持chat方法"
+                         return
+                     
+                     response, _ = model.chat(tokenizer, prompt, history=history)
+                     yield response
+                 except Exception as e:
++                    logger.exception(f"生成流式响应时出错: {str(e)}")
+                     yield f"生成流式响应时出错: {str(e)}"
+                 
+             return {
+@@ -79,21 +96,25 @@ def chat_completion(messages, stream=False):
+             # 标准响应
+             try:
+                 if model is None:
++                    logger.error("模型未加载")
+                     return {
+                         "error": "模型未加载",
+                         "processing_time": "N/A"
+                     }
+                 
+                 if not hasattr(model, 'chat'):
++                    logger.error("模型不支持chat方法")
+                     return {
+                         "error": "模型不支持chat方法",
+                         "processing_time": "N/A"
+                     }
+                 
++                logger.info(f"开始生成回复，提示词长度: {len(prompt)}")
+                 response, new_history = model.chat(tokenizer, prompt, history=history)
+                 
+                 # 计算处理时间
+                 processing_time = time.time() - start_time
++                logger.info(f"回复生成完成，耗时: {processing_time:.2f}秒")
+                 
+                 return {
+                     "id": f"chatcmpl-{int(time.time()*1000)}",
+@@ -118,11 +139,13 @@ def chat_completion(messages, stream=False):
+                     "processing_time": f"{processing_time:.2f}秒"
+                 }
+             except Exception as e:
++                logger.exception(f"标准响应生成出错: {str(e)}")
+                 return {
+                     "error": f"标准响应生成出错: {str(e)}",
+                     "processing_time": "N/A"
+                 }
+     except Exception as e:
++        logger.exception(f"处理过程中出错: {str(e)}")
+         return {
+             "error": f"处理过程中出错: {str(e)}",
+             "processing_time": "N/A"
+diff --git a/admin_system/core/wrappers/model_wrapper.py b/admin_system/core/wrappers/model_wrapper.py
+index 64aa87b..b7f7caf 100644
+--- a/admin_system/core/wrappers/model_wrapper.py
++++ b/admin_system/core/wrappers/model_wrapper.py
+@@ -6,8 +6,13 @@
+ """
+ 
+ import torch
++import logging
++import traceback
+ from transformers import AutoModelForCausalLM, AutoTokenizer
+ 
++# 设置日志
++logger = logging.getLogger(__name__)
++
+ class ModelWrapper:
+     """
+     模型包装器类 - 用于加载和使用量化模型
+@@ -25,42 +30,78 @@ class ModelWrapper:
+         self.model = None
+         self.tokenizer = None
+         self.is_loaded = False
++        
++        logger.info(f"创建ModelWrapper实例: 路径={model_path}, 设备={self.device}, 精度={precision}")
+     
+     def load(self):
+         """加载模型和分词器"""
+         try:
+-            print(f"正在加载模型: {self.model_path}")
+-            print(f"设备: {self.device}, 精度: {self.precision}")
++            logger.info(f"开始加载模型: {self.model_path}")
++            logger.info(f"设备: {self.device}, 精度: {self.precision}")
++            logger.info(f"CUDA是否可用: {torch.cuda.is_available()}")
++            
++            if torch.cuda.is_available():
++                logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
++                logger.info(f"GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024 / 1024 / 1024:.2f} GB")
+             
+             # 加载tokenizer
+-            self.tokenizer = AutoTokenizer.from_pretrained(
+-                self.model_path, 
+-                trust_remote_code=True
+-            )
++            try:
++                logger.info("加载tokenizer...")
++                self.tokenizer = AutoTokenizer.from_pretrained(
++                    self.model_path, 
++                    trust_remote_code=True
++                )
++                logger.info("tokenizer加载成功")
++            except Exception as e:
++                logger.exception(f"tokenizer加载失败: {str(e)}")
++                return False
+             
+             # 加载模型
+-            self.model = AutoModelForCausalLM.from_pretrained(
+-                self.model_path,
+-                trust_remote_code=True,
+-                torch_dtype=self.torch_dtype,
+-                low_cpu_mem_usage=True,
+-                use_cache=True
+-            )
++            try:
++                logger.info("加载model...")
++                self.model = AutoModelForCausalLM.from_pretrained(
++                    self.model_path,
++                    trust_remote_code=True,
++                    torch_dtype=self.torch_dtype,
++                    low_cpu_mem_usage=True,
++                    use_cache=True
++                )
++                logger.info("model加载成功")
++            except Exception as e:
++                logger.exception(f"model加载失败: {str(e)}")
++                return False
+             
+             # 如果CUDA可用，将模型移至GPU
+             if self.device == "cuda":
+-                self.model = self.model.to(self.device)
++                try:
++                    logger.info("将model移至CUDA...")
++                    self.model = self.model.to(self.device)
++                    logger.info("model已移至CUDA")
++                except Exception as e:
++                    logger.exception(f"将model移至CUDA失败: {str(e)}")
++                    # 回退到CPU
++                    logger.info("回退到CPU模式")
++                    self.device = "cpu"
+             
+             # 设置为评估模式
+             self.model = self.model.eval()
+             
+             # 标记模型已加载
+             self.is_loaded = True
+-            print("模型加载完成")
++            logger.info("模型加载完成")
++            
++            # 验证模型
++            try:
++                logger.info("验证模型...")
++                result, _ = self.model.chat(self.tokenizer, "测试", history=[])
++                logger.info(f"模型验证成功，返回: {result[:50]}...")
++            except Exception as e:
++                logger.exception(f"模型验证失败: {str(e)}")
++                # 尽管验证失败，但还是认为模型已加载
+             
+             return True
+         except Exception as e:
+-            print(f"模型加载失败: {str(e)}")
++            logger.exception(f"模型加载过程中遇到未处理的异常: {str(e)}")
+             return False
+     
+     def chat(self, prompt, history=None):
+@@ -76,17 +117,23 @@ class ModelWrapper:
+         """
+         # 确保模型已加载
+         if not self.is_loaded:
+-            self.load()
++            logger.warning("模型未加载，尝试加载...")
++            if not self.load():
++                return "模型加载失败，无法生成回复", history or []
+         
+         if history is None:
+             history = []
+         
+         try:
++            logger.info(f"生成回复，提示词长度: {len(prompt)}, 历史记录: {len(history)}条")
+             # 调用模型的chat方法
+             response, new_history = self.model.chat(self.tokenizer, prompt, history=history)
++            logger.info(f"回复生成成功，长度: {len(response)}")
+             return response, new_history
+         except Exception as e:
+-            print(f"聊天生成出错: {str(e)}")
++            error_msg = f"聊天生成出错: {str(e)}"
++            logger.exception(error_msg)
++            logger.error(f"异常堆栈: {traceback.format_exc()}")
+             return f"抱歉，生成回复时出错: {str(e)}", history
+     
+     def generate(self, prompt):
+diff --git a/run_test.bat b/run_test.bat
+new file mode 100644
+index 0000000..d699d72
+--- /dev/null
++++ b/run_test.bat
+@@ -0,0 +1,26 @@
++@echo off
++echo 启动测试流程...
++
++REM 激活虚拟环境
++call chat_env\Scripts\activate.bat
++
++REM 启动服务并等待
++start "服务器进程" python scripts/startup/load_model_and_run_django.py
++
++REM 等待服务启动
++echo 等待服务启动...
++timeout /t 20 /nobreak
++
++REM 测试API
++echo 测试API...
++python scripts/test_scripts/test_chat_api.py
++
++REM 检查测试结果
++if %ERRORLEVEL% EQU 0 (
++    echo 测试成功！
++) else (
++    echo 测试失败，错误码: %ERRORLEVEL%
++)
++
++REM 保持窗口打开
++pause 
+\ No newline at end of file
+diff --git a/scripts/startup/load_model_and_run_django.py b/scripts/startup/load_model_and_run_django.py
+index 493a4ec..2ae5190 100644
+--- a/scripts/startup/load_model_and_run_django.py
++++ b/scripts/startup/load_model_and_run_django.py
+@@ -1,9 +1,21 @@
+ import os
+ import sys
+ import time
++import logging
+ import subprocess
+ from pathlib import Path
+ 
++# 设置日志
++logging.basicConfig(
++    level=logging.INFO,
++    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
++    handlers=[
++        logging.StreamHandler(),
++        logging.FileHandler('model_startup.log')
++    ]
++)
++logger = logging.getLogger(__name__)
++
+ # 将项目目录添加到Python路径
+ current_dir = Path.cwd()
+ admin_system_dir = current_dir / "admin_system"
+@@ -12,39 +24,91 @@ sys.path.append(str(admin_system_dir))
+ # 设置Django环境使用最小化设置
+ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'admin_system.minimal_settings')
+ 
++def wait_for_model_load(timeout=600):
++    """
++    等待模型加载完成，最多等待指定的超时时间(秒)
++    
++    Args:
++        timeout: 最大等待时间(秒)
++        
++    Returns:
++        bool: 模型是否成功加载
++    """
++    from core.model_service import get_service_status
++    
++    start_time = time.time()
++    while time.time() - start_time < timeout:
++        status = get_service_status()
++        if status['status'] == 'running' and status['model_loaded']:
++            return True
++        
++        if status['status'] == 'error':
++            logger.error(f"模型加载失败: {status.get('message', '未知错误')}")
++            return False
++            
++        logger.info(f"等待模型加载... 状态: {status['status']}")
++        time.sleep(5)  # 每5秒检查一次
++    
++    logger.error(f"模型加载超时，已等待{timeout}秒")
++    return False
++
+ try:
+-    print("初始化Django...")
++    logger.info("初始化Django...")
+     import django
+     django.setup()
+-    print("Django初始化完成")
++    logger.info("Django初始化完成")
+     
+     # 预加载模型
+-    print("\n预加载模型...")
++    logger.info("\n预加载模型...")
+     from core.model_service import init_model, get_service_status
+     
+     # 初始化并加载模型
+     result = init_model()
+-    print(f"模型加载结果: {result}")
++    logger.info(f"模型加载启动结果: {result}")
++    
++    # 等待模型完全加载
++    if result['status'] in ['success', 'loading']:
++        logger.info("等待模型完全加载...")
++        if not wait_for_model_load():
++            logger.error("模型未能在规定时间内加载完成，但仍将尝试启动Django")
++    else:
++        logger.error(f"模型加载失败: {result.get('message', '未知错误')}")
+     
+     # 获取并打印服务状态
+     status = get_service_status()
+-    print("\n模型服务状态:")
+-    print(f"状态: {status.get('status', 'unknown')}")
+-    print(f"消息: {status.get('message', 'unknown')}")
+-    print(f"模型已加载: {status.get('model_loaded', False)}")
+-    print(f"GPU可用: {status.get('gpu_available', False)}")
++    logger.info("\n模型服务状态:")
++    logger.info(f"状态: {status.get('status', 'unknown')}")
++    logger.info(f"消息: {status.get('message', 'unknown')}")
++    logger.info(f"模型已加载: {status.get('model_loaded', False)}")
++    logger.info(f"GPU可用: {status.get('gpu_available', False)}")
+     
+     # 打印GPU信息（如果有）
+     gpu_info = status.get('gpu_info', {})
+     if gpu_info:
+-        print("\nGPU信息:")
+-        print(f"名称: {gpu_info.get('name', 'unknown')}")
+-        print(f"总内存: {gpu_info.get('total_memory', 0):.2f} GB")
+-        print(f"已分配内存: {gpu_info.get('allocated_memory', 0):.2f} GB")
+-        print(f"缓存内存: {gpu_info.get('cached_memory', 0):.2f} GB")
++        logger.info("\nGPU信息:")
++        logger.info(f"名称: {gpu_info.get('name', 'unknown')}")
++        logger.info(f"总内存: {gpu_info.get('total_memory', 0):.2f} GB")
++        logger.info(f"已分配内存: {gpu_info.get('allocated_memory', 0):.2f} GB")
++        logger.info(f"缓存内存: {gpu_info.get('cached_memory', 0):.2f} GB")
++
++    # 进行简单的模型测试
++    logger.info("\n执行简单的模型测试...")
++    try:
++        from core.wrappers.model_wrapper import ModelWrapper
++        from core.model_service import get_model
++        
++        model, tokenizer = get_model()
++        if model is None or tokenizer is None:
++            logger.error("模型或分词器为空，无法进行测试")
++        else:
++            response, _ = model.chat(tokenizer, "你好", history=[])
++            logger.info(f"测试响应: {response[:100]}...")
++            logger.info("模型测试完成")
++    except Exception as e:
++        logger.exception(f"模型测试失败: {str(e)}")
+ 
+     # 启动Django
+-    print("\n启动Django服务器...")
++    logger.info("\n启动Django服务器...")
+     os.chdir(str(admin_system_dir))
+     
+     # 使用最小化设置启动Django
+@@ -54,6 +118,4 @@ try:
+     subprocess.call(django_cmd)
+     
+ except Exception as e:
+-    print(f"启动过程中出错: {str(e)}")
+-    import traceback
+-    traceback.print_exc() 
+\ No newline at end of file
++    logger.exception(f"启动过程中出错: {str(e)}") 
+\ No newline at end of file
+diff --git a/scripts/test_scripts/test_chat_api.py b/scripts/test_scripts/test_chat_api.py
+index 28e26ec..78a666c 100644
+--- a/scripts/test_scripts/test_chat_api.py
++++ b/scripts/test_scripts/test_chat_api.py
+@@ -2,13 +2,23 @@ import requests
+ import json
+ import time
+ import sys
++import logging
+ 
+-def test_chat_api(base_url="http://localhost:8000"):
++# 设置日志
++logging.basicConfig(
++    level=logging.INFO,
++    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
++)
++logger = logging.getLogger(__name__)
++
++def test_chat_api(base_url="http://localhost:8000", max_retries=3, retry_delay=5):
+     """
+     测试聊天API
+     
+     Args:
+         base_url: API基础URL
++        max_retries: 最大重试次数
++        retry_delay: 重试间隔(秒)
+     """
+     # 组合完整URL
+     url = f"{base_url}/api/v1/chat/completions"
+@@ -25,46 +35,94 @@ def test_chat_api(base_url="http://localhost:8000"):
+         "stream": False
+     }
+     
+-    print(f"\n正在测试聊天API: {url}")
+-    print(f"请求数据: {json.dumps(data, ensure_ascii=False)}")
++    logger.info(f"正在测试聊天API: {url}")
++    logger.info(f"请求数据: {json.dumps(data, ensure_ascii=False)}")
+     
++    # 先检查服务状态
+     try:
+-        # 发送POST请求
+-        start_time = time.time()
+-        response = requests.post(url, json=data)
+-        end_time = time.time()
+-        
+-        # 打印响应时间
+-        print(f"\n响应时间: {end_time - start_time:.2f}秒")
++        status_url = f"{base_url}/api/status"
++        logger.info(f"检查服务状态: {status_url}")
++        status_response = requests.get(status_url)
+         
+-        # 检查响应状态
+-        if response.status_code == 200:
+-            # 尝试解析JSON响应
+-            try:
+-                result = response.json()
+-                print(f"\n响应状态码: {response.status_code}")
+-                
+-                if "error" in result:
+-                    print(f"错误: {result['error']}")
+-                elif "choices" in result and result["choices"]:
+-                    choice = result["choices"][0]
+-                    if "message" in choice and "content" in choice["message"]:
+-                        print(f"回复: {choice['message']['content']}")
+-                    else:
+-                        print(f"未找到回复内容: {choice}")
+-                else:
+-                    print(f"未知结果格式: {result}")
++        if status_response.status_code == 200:
++            status_data = status_response.json()
++            logger.info(f"服务状态: {json.dumps(status_data, ensure_ascii=False)}")
+             
+-            except json.JSONDecodeError:
+-                print(f"无法解析JSON响应: {response.text}")
++            # 如果模型未加载，等待并重试
++            if status_data.get('status') == 'loading':
++                logger.info("模型正在加载中，等待...")
++                time.sleep(10)  # 等待10秒
++            elif not status_data.get('model_loaded', False):
++                logger.warning("模型未加载，API调用可能会失败")
+         else:
+-            print(f"请求失败，状态码: {response.status_code}")
+-            print(f"响应内容: {response.text}")
+-    
++            logger.warning(f"获取服务状态失败: {status_response.status_code}")
+     except Exception as e:
+-        print(f"测试过程中出错: {str(e)}")
++        logger.exception(f"检查服务状态时出错: {str(e)}")
++    
++    # 重试机制
++    for attempt in range(max_retries):
++        try:
++            logger.info(f"尝试 #{attempt+1}/{max_retries}")
++            
++            # 发送POST请求
++            start_time = time.time()
++            response = requests.post(url, json=data, timeout=60)  # 增加超时时间
++            end_time = time.time()
++            
++            # 打印响应时间
++            logger.info(f"响应时间: {end_time - start_time:.2f}秒")
++            
++            # 检查响应状态
++            if response.status_code == 200:
++                # 尝试解析JSON响应
++                try:
++                    result = response.json()
++                    logger.info(f"响应状态码: {response.status_code}")
++                    
++                    if "error" in result:
++                        logger.error(f"错误: {result['error']}")
++                        
++                        # 如果是模型未加载的错误，等待并重试
++                        if "模型未加载" in result['error'] and attempt < max_retries - 1:
++                            logger.info(f"等待 {retry_delay} 秒后重试...")
++                            time.sleep(retry_delay)
++                            continue
++                    elif "choices" in result and result["choices"]:
++                        choice = result["choices"][0]
++                        if "message" in choice and "content" in choice["message"]:
++                            logger.info(f"回复: {choice['message']['content']}")
++                            return True  # 成功返回
++                        else:
++                            logger.warning(f"未找到回复内容: {choice}")
++                    else:
++                        logger.warning(f"未知结果格式: {result}")
++                
++                except json.JSONDecodeError:
++                    logger.error(f"无法解析JSON响应: {response.text}")
++            else:
++                logger.error(f"请求失败，状态码: {response.status_code}")
++                logger.error(f"响应内容: {response.text}")
++            
++            # 如果还有重试机会，等待后重试
++            if attempt < max_retries - 1:
++                logger.info(f"等待 {retry_delay} 秒后重试...")
++                time.sleep(retry_delay)
++        
++        except requests.RequestException as e:
++            logger.exception(f"请求异常: {str(e)}")
++            
++            # 如果还有重试机会，等待后重试
++            if attempt < max_retries - 1:
++                logger.info(f"等待 {retry_delay} 秒后重试...")
++                time.sleep(retry_delay)
++    
++    logger.error("所有重试均失败")
++    return False
+ 
+ if __name__ == "__main__":
+     # 从命令行参数获取URL或使用默认值
+     base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
+-    test_chat_api(base_url) 
+\ No newline at end of file
++    success = test_chat_api(base_url)
++    
++    # 设置退出码
++    sys.exit(0 if success else 1) 
+\ No newline at end of file
+-- 
+2.49.0.windows.1
+
