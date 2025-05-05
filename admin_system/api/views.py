@@ -5,7 +5,7 @@ API视图函数 - 提供与原系统兼容的API接口
 """
 import json
 import time
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -15,6 +15,24 @@ from core.text_processing import chat_completion
 from core.model_service import get_service_status as get_model_status
 from management.models import KnowledgeBase
 from knowledge_base.services import search_knowledge_base as kb_vector_search
+
+def index_view(request):
+    """
+    首页视图函数
+    
+    处理根路径"/"的请求
+    """
+    return HttpResponse(
+        '<h1>设计助手API服务</h1>'
+        '<p>API服务已正常运行。</p>'
+        '<p>可用API接口:</p>'
+        '<ul>'
+        '<li>/api/analyze - 图像分析接口</li>'
+        '<li>/api/v1/chat/completions - 聊天完成接口</li>'
+        '<li>/api/search - 知识库搜索接口</li>'
+        '<li>/api/status - 服务状态接口</li>'
+        '</ul>'
+    )
 
 @csrf_exempt
 @require_http_methods(["POST"])

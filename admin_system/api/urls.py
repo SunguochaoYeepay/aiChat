@@ -7,6 +7,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # 首页路由
+    path('', views.index_view, name='index'),
     # 原有API接口
     path('analyze', views.analyze_image, name='api_analyze_image'),
     path('v1/chat/completions', views.chat_completions, name='api_chat_completions'),

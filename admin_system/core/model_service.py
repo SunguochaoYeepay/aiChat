@@ -54,6 +54,17 @@ def init_model(model_path=None, device=None, precision=None):
         _is_loading = True
         
         try:
+            # 详细检查CUDA是否可用
+            cuda_available = torch.cuda.is_available()
+            logger.info(f"CUDA是否可用: {cuda_available}")
+            if cuda_available:
+                try:
+                    cuda_device_count = torch.cuda.device_count()
+                    cuda_device_name = torch.cuda.get_device_name(0) if cuda_device_count > 0 else "未知"
+                    logger.info(f"CUDA设备数量: {cuda_device_count}, 设备名称: {cuda_device_name}")
+                except Exception as e:
+                    logger.warning(f"获取CUDA设备信息时出错: {str(e)}")
+            
             # 如果没有提供配置，则使用默认值或从数据库获取
             if not model_path:
                 from management.models import ModelConfig
@@ -70,12 +81,19 @@ def init_model(model_path=None, device=None, precision=None):
                     precision = getattr(settings, 'DEFAULT_PRECISION', 'float16')
             
             # 检查CUDA是否可用，如果不可用则回退到CPU
-            if device == 'cuda' and not torch.cuda.is_available():
+            if device == 'cuda' and not cuda_available:
                 logger.warning("CUDA不可用，回退到CPU模式运行")
                 device = 'cpu'
                     
             logger.info(f"开始加载模型: {model_path}")
             logger.info(f"设备: {device}, 精度: {precision}")
+            
+            # 尝试查找非量化模型路径
+            if device == 'cpu' and ('Int4' in model_path or 'Int8' in model_path):
+                non_quantized_path = model_path.replace("-Int4", "").replace("-Int8", "")
+                if os.path.exists(non_quantized_path):
+                    logger.info(f"在CPU模式下使用非量化模型: {non_quantized_path}")
+                    model_path = non_quantized_path
             
             # 记录加载开始时间
             load_start = time.time()
