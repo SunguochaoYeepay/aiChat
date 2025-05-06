@@ -33,5 +33,6 @@ module.exports = defineConfig({
   lintOnSave: false,  // 禁用保存时的lint
   
   // 配置公共路径，确保资源能正确加载
-  publicPath: '/static/vue/'
+  // 将publicPath改为相对路径，这样vue应用可以通过不同的URL访问
+  publicPath: './'
 }); 
