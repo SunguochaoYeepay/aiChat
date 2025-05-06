@@ -45,11 +45,14 @@ INSTALLED_APPS = [
     'api',
     'core',
     'channels',
+    'rest_framework',  # 添加REST framework
+    'corsheaders',  # 添加CORS支持，用于前后端分离
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # CORS中间件，必须在CommonMiddleware之前
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -58,6 +61,27 @@ MIDDLEWARE = [
     # API中间件
     'api.middleware.APIKeyMiddleware',  # API密钥验证中间件
     'api.middleware.APILoggingMiddleware',  # API日志记录中间件
+]
+
+# REST Framework设置
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10
+}
+
+# CORS设置，允许Vue前端访问API
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8080",  # Vue开发服务器默认端口
+    "http://localhost:5173",  # Vite默认端口
+    "http://127.0.0.1:8080",
+    "http://127.0.0.1:5173",
 ]
 
 ROOT_URLCONF = 'admin_system.urls'

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设计助手管理系统</title>
+    {% load static %}
+    <!-- 加载静态资源 -->
+    <link rel="stylesheet" href="{% static 'vue/assets/css/app.css' %}">
+    <script>
+        // 初始化全局状态
+        window.__INITIAL_STATE__ = JSON.parse('{{ initial_state|escapejs }}');
+    </script>
+</head>
+<body>
+    <!-- Vue 应用挂载点 -->
+    <div id="app"></div>
+    
+    <!-- 加载 Vue 应用 -->
+    <script src="{% static 'vue/assets/js/chunk-vendors.js' %}"></script>
+    <script src="{% static 'vue/assets/js/app.js' %}"></script>
+</body>
+</html> 

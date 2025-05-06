@@ -25,8 +25,13 @@ urlpatterns = [
     # 添加API测试页面路由
     path('api/test/', api_test_view, name='api_test'),
     
+    # 传统视图路由
     path('management/', include('management.urls')),
     path('vector/', include('vector_search.urls')),
+    
+    # REST API 路由
+    path('api/v1/', include('management.api_urls')),  # 新增：提示词模板 REST API
+    
     # 集成API应用路由
     path('api/', include('api.urls')),
     # 兼容原有FastAPI接口路由（不含api前缀）

@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提示词模板管理</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-right: 5px;
+            margin-bottom: -1px;
+        }
+        .tab.active {
+            background-color: white;
+            border-color: #ddd;
+            border-radius: 5px 5px 0 0;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .editor-container {
+            display: flex;
+            gap: 20px;
+        }
+        .template-list {
+            width: 300px;
+            border-right: 1px solid #eee;
+            padding-right: 20px;
+        }
+        .template-editor {
+            flex: 1;
+        }
+        .btn {
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background-color: #3367d6;
+        }
+        .btn-secondary {
+            background-color: #999;
+        }
+        .btn-secondary:hover {
+            background-color: #777;
+        }
+        .btn-danger {
+            background-color: #EA4335;
+        }
+        .btn-danger:hover {
+            background-color: #d33426;
+        }
+        .back-btn {
+            display: inline-block;
+            margin-bottom: 20px;
+            text-decoration: none;
+            color: #333;
+        }
+        .back-btn:hover {
+            text-decoration: underline;
+        }
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            font-family: monospace;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status-success {
+            background-color: #d9f0d9;
+            color: #2a602a;
+        }
+        .status-error {
+            background-color: #f0d9d9;
+            color: #602a2a;
+        }
+        .template-item {
+            margin-bottom: 5px;
+            padding: 8px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .template-item:hover {
+            background-color: #f0f0f0;
+        }
+        .template-item.active {
+            background-color: #e6f0ff;
+            font-weight: bold;
+        }
+        .template-type {
+            font-size: 12px;
+            color: #666;
+            margin-left: 10px;
+        }
+        /* 表格样式 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        .search-box {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        /* 创建/编辑表单 */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-control {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .form-help {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="{% url 'admin:index' %}" class="back-btn">← 返回管理界面</a>
+        <h1>提示词模板统一管理</h1>
+        
+        <div class="tabs">
+            <div class="tab active" data-tab="editor">编辑器</div>
+            <div class="tab" data-tab="list">模板列表</div>
+            <div class="tab" data-tab="create">创建模板</div>
+            <div class="tab" data-tab="docs">使用说明</div>
+        </div>
+        
+        <!-- 编辑器标签页 -->
+        <div id="editor" class="tab-content active">
+            <div class="controls">
+                <button id="refreshBtn" class="btn">刷新模板</button>
+                <button id="saveBtn" class="btn">保存模板</button>
+                <button id="resetBtn" class="btn btn-danger">重置为默认</button>
+            </div>
+            
+            <div class="editor-container">
+                <div class="template-list">
+                    <h3>模板类别</h3>
+                    <div id="templateCategories"></div>
+                </div>
+                
+                <div class="template-editor">
+                    <h3>编辑模板</h3>
+                    <p id="currentPath"></p>
+                    <textarea id="templateEditor"></textarea>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 模板列表标签页 -->
+        <div id="list" class="tab-content">
+            <h2>提示词模板列表</h2>
+            <input type="text" id="searchTemplate" class="search-box" placeholder="搜索模板名称或描述...">
+            
+            <table id="templateTable">
+                <thead>
+                    <tr>
+                        <th>名称</th>
+                        <th>描述</th>
+                        <th>创建时间</th>
+                        <th>更新时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="templateTableBody">
+                    <!-- 模板数据将通过JavaScript动态加载 -->
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 创建模板标签页 -->
+        <div id="create" class="tab-content">
+            <h2>创建/编辑提示词模板</h2>
+            <form id="templateForm">
+                <div class="form-group">
+                    <label for="templateName">模板名称</label>
+                    <input type="text" id="templateName" class="form-control" placeholder="格式: 类别.类型，例如: chat.expert">
+                    <div class="form-help">命名规则: 使用"类别.类型"格式，如"chat.expert"、"image_analysis.detail"等</div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="templateDescription">描述</label>
+                    <input type="text" id="templateDescription" class="form-control" placeholder="简短描述这个模板的用途">
+                </div>
+                
+                <div class="form-group">
+                    <label for="templateContent">模板内容</label>
+                    <textarea id="templateContent" class="form-control" rows="10" placeholder="编写提示词模板内容，可使用{query}、{history}等变量"></textarea>
+                    <div class="form-help">
+                        可用变量:<br>
+                        - {query}: 用户的查询内容<br>
+                        - {history}: 聊天历史<br>
+                        - {content}: 搜索到的知识库内容
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn" id="submitTemplate">保存模板</button>
+                <button type="button" class="btn btn-secondary" id="cancelTemplate">取消</button>
+            </form>
+        </div>
+        
+        <!-- 使用说明标签页 -->
+        <div id="docs" class="tab-content">
+            <h2>提示词模板使用说明</h2>
+            
+            <h3>提示词模板概念</h3>
+            <p>提示词模板是预定义的文本模式，用于指导AI模型的行为和回答方式。通过定制不同场景的提示词模板，可以使AI输出更符合特定需求的内容。</p>
+            
+            <h3>模板类别</h3>
+            <ul>
+                <li><strong>chat</strong> - 文本聊天类提示词，用于一般对话场景</li>
+                <li><strong>image_analysis</strong> - 图像分析类提示词，用于分析图片内容</li>
+                <li><strong>search</strong> - 知识库搜索类提示词，用于基于知识检索的回答</li>
+                <li><strong>topic_matching</strong> - 主题匹配类提示词，用于识别查询的主题类别</li>
+            </ul>
+            
+            <h3>模板变量</h3>
+            <p>提示词模板中可以使用特定变量，系统会在处理时自动替换：</p>
+            <ul>
+                <li><code>{query}</code> - 用户的查询内容</li>
+                <li><code>{history}</code> - 聊天历史记录</li>
+                <li><code>{content}</code> - 从知识库检索到的内容</li>
+            </ul>
+            
+            <h3>开发者接口</h3>
+            <p>在代码中调用提示词模板：</p>
+            <pre>
+from management.prompt_manager import prompt_manager
+
+# 获取聊天提示词
+prompt = prompt_manager.apply_chat_template(query, history, template_type='expert')
+
+# 获取图像分析提示词
+prompt = prompt_manager.apply_image_analysis_template(query, template_type='detail')
+
+# 获取搜索提示词
+prompt = prompt_manager.apply_search_template(query, content, template_type='rag')
+            </pre>
+            
+            <h3>API参数</h3>
+            <p>调用API时可以通过<code>template_type</code>参数指定使用的模板类型：</p>
+            <pre>
+# 聊天API示例
+POST /api/v1/chat/completions
+{
+    "messages": [...],
+    "template_type": "expert"
+}
+
+# 图像分析API示例
+POST /api/analyze
+{
+    "image_base64": "...",
+    "query": "分析这张图片",
+    "template_type": "detail"
+}
+            </pre>
+        </div>
+        
+        <div id="status" class="status" style="display: none;"></div>
+    </div>
+    
+    <script>
+        // 全局变量
+        let templates = {};
+        let currentCategory = null;
+        let currentType = null;
+        let editingTemplateId = null;
+        
+        // 获取元素
+        const templateCategories = document.getElementById('templateCategories');
+        const templateEditor = document.getElementById('templateEditor');
+        const currentPath = document.getElementById('currentPath');
+        const status = document.getElementById('status');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const templateTable = document.getElementById('templateTable');
+        const templateTableBody = document.getElementById('templateTableBody');
+        const searchTemplate = document.getElementById('searchTemplate');
+        const templateForm = document.getElementById('templateForm');
+        const templateName = document.getElementById('templateName');
+        const templateDescription = document.getElementById('templateDescription');
+        const templateContent = document.getElementById('templateContent');
+        const submitTemplate = document.getElementById('submitTemplate');
+        const cancelTemplate = document.getElementById('cancelTemplate');
+        
+        // 获取API基础URL
+        function getApiBaseUrl() {
+            const protocol = window.location.protocol;
+            const hostname = window.location.hostname; 
+            const port = window.location.port ? `:${window.location.port}` : '';
+            return `${protocol}//${hostname}${port}`;
+        }
+        
+        // 显示状态消息
+        function showStatus(message, type = 'info') {
+            status.textContent = message;
+            status.className = 'status';
+            
+            if (type === 'success') {
+                status.classList.add('status-success');
+            } else if (type === 'error') {
+                status.classList.add('status-error');
+            }
+            
+            status.style.display = 'block';
+            
+            // 5秒后自动隐藏
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+        
+        // 加载模板列表
+        async function loadTemplateList() {
+            try {
+                const response = await fetch(`${getApiBaseUrl()}/management/get_templates_list/`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                renderTemplateTable(data.templates);
+            } catch (error) {
+                showStatus(`加载模板列表失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 渲染模板表格
+        function renderTemplateTable(templatesArray) {
+            templateTableBody.innerHTML = '';
+            
+            if (templatesArray.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="5" style="text-align: center;">没有找到模板</td>';
+                templateTableBody.appendChild(row);
+                return;
+            }
+            
+            templatesArray.forEach(template => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${template.name}</td>
+                    <td>${template.description || '-'}</td>
+                    <td>${template.created_at}</td>
+                    <td>${template.updated_at}</td>
+                    <td>
+                        <button class="btn" onclick="editTemplate(${template.id})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteTemplate(${template.id})">删除</button>
+                    </td>
+                `;
+                templateTableBody.appendChild(row);
+            });
+        }
+        
+        // 加载模板
+        async function loadTemplates() {
+            try {
+                showStatus('正在加载模板...', 'info');
+                const response = await fetch(`${getApiBaseUrl()}/management/prompt_templates/`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                templates = await response.json();
+                renderTemplateCategories();
+                showStatus('模板加载成功！', 'success');
+            } catch (error) {
+                showStatus(`加载模板失败: ${error.message}`, 'error');
+                console.error('加载模板出错:', error);
+            }
+        }
+        
+        // 渲染模板类别
+        function renderTemplateCategories() {
+            templateCategories.innerHTML = '';
+            
+            for (const category in templates) {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'template-category';
+                
+                // 添加类别标题
+                const categoryTitle = document.createElement('h4');
+                categoryTitle.textContent = getCategoryName(category);
+                categoryTitle.style.marginBottom = '5px';
+                categoryDiv.appendChild(categoryTitle);
+                
+                // 添加该类别下的所有模板类型
+                const types = templates[category];
+                for (const type in types) {
+                    const item = document.createElement('div');
+                    item.className = 'template-item';
+                    if (category === currentCategory && type === currentType) {
+                        item.className += ' active';
+                    }
+                    
+                    item.innerHTML = `${type} <span class="template-type">(${category})</span>`;
+                    item.dataset.category = category;
+                    item.dataset.type = type;
+                    
+                    item.addEventListener('click', function() {
+                        selectTemplate(category, type);
+                    });
+                    
+                    categoryDiv.appendChild(item);
+                }
+                
+                templateCategories.appendChild(categoryDiv);
+            }
+        }
+        
+        // 获取类别显示名称
+        function getCategoryName(category) {
+            const names = {
+                'chat': '文本聊天',
+                'image_analysis': '图像分析',
+                'search': '知识库搜索',
+                'topic_matching': '主题匹配'
+            };
+            return names[category] || category;
+        }
+        
+        // 选择模板
+        function selectTemplate(category, type) {
+            currentCategory = category;
+            currentType = type;
+            
+            // 更新UI选中状态
+            document.querySelectorAll('.template-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.category === category && item.dataset.type === type) {
+                    item.classList.add('active');
+                }
+            });
+            
+            // 显示当前路径
+            currentPath.textContent = `当前编辑: ${category} > ${type}`;
+            
+            // 获取并显示模板内容
+            const content = templates[category][type];
+            templateEditor.value = typeof content === 'object' ? JSON.stringify(content, null, 4) : content;
+        }
+        
+        // 保存模板
+        async function saveTemplates() {
+            try {
+                showStatus('正在保存模板...', 'info');
+                
+                // 更新当前编辑的模板内容
+                if (currentCategory && currentType) {
+                    templates[currentCategory][currentType] = templateEditor.value;
+                }
+                
+                // 发送保存请求
+                const response = await fetch(`${getApiBaseUrl()}/management/prompt_templates/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(templates)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showStatus('模板保存成功！', 'success');
+                } else {
+                    showStatus(`保存失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`保存模板失败: ${error.message}`, 'error');
+                console.error('保存模板出错:', error);
+            }
+        }
+        
+        // 重置模板为默认值
+        async function resetTemplates() {
+            if (!confirm('确定要重置所有模板为默认值吗？此操作不可撤销。')) {
+                return;
+            }
+            
+            try {
+                showStatus('正在重置模板...', 'info');
+                
+                const response = await fetch(`${getApiBaseUrl()}/management/refresh_templates/`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // 更新本地模板数据
+                    templates = result.templates;
+                    renderTemplateCategories();
+                    
+                    // 如果有当前选中的模板，更新显示
+                    if (currentCategory && currentType) {
+                        selectTemplate(currentCategory, currentType);
+                    }
+                    
+                    showStatus('模板已重置为默认值！', 'success');
+                } else {
+                    showStatus(`重置失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`重置模板失败: ${error.message}`, 'error');
+                console.error('重置模板出错:', error);
+            }
+        }
+        
+        // 创建或更新单个模板
+        async function submitTemplateForm(event) {
+            event.preventDefault();
+            
+            // 验证表单
+            const name = templateName.value.trim();
+            const description = templateDescription.value.trim();
+            const content = templateContent.value.trim();
+            
+            if (!name) {
+                showStatus('请输入模板名称', 'error');
+                return;
+            }
+            
+            if (!name.includes('.')) {
+                showStatus('模板名称必须使用"类别.类型"格式，如"chat.expert"', 'error');
+                return;
+            }
+            
+            if (!content) {
+                showStatus('请输入模板内容', 'error');
+                return;
+            }
+            
+            try {
+                showStatus('正在保存模板...', 'info');
+                
+                const url = editingTemplateId 
+                    ? `${getApiBaseUrl()}/management/update_template/${editingTemplateId}/`
+                    : `${getApiBaseUrl()}/management/create_template/`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name,
+                        description,
+                        content
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showStatus('模板保存成功！', 'success');
+                    
+                    // 重置表单
+                    templateForm.reset();
+                    editingTemplateId = null;
+                    
+                    // 刷新模板列表
+                    loadTemplateList();
+                    
+                    // 刷新编辑器模板
+                    loadTemplates();
+                    
+                    // 切换到列表标签页
+                    document.querySelector('.tab[data-tab="list"]').click();
+                } else {
+                    showStatus(`保存失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`保存模板失败: ${error.message}`, 'error');
+                console.error('保存模板出错:', error);
+            }
+        }
+        
+        // 编辑模板
+        async function editTemplate(id) {
+            try {
+                const response = await fetch(`${getApiBaseUrl()}/management/get_template/${id}/`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const template = await response.json();
+                
+                // 填充表单
+                templateName.value = template.name;
+                templateDescription.value = template.description || '';
+                templateContent.value = template.content;
+                
+                // 设置正在编辑的模板ID
+                editingTemplateId = id;
+                
+                // 切换到创建/编辑标签页
+                document.querySelector('.tab[data-tab="create"]').click();
+                
+                showStatus('模板加载成功，请编辑后保存', 'success');
+            } catch (error) {
+                showStatus(`加载模板失败: ${error.message}`, 'error');
+                console.error('加载模板出错:', error);
+            }
+        }
+        
+        // 删除模板
+        async function deleteTemplate(id) {
+            if (!confirm('确定要删除这个模板吗？此操作不可撤销。')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${getApiBaseUrl()}/management/delete_template/${id}/`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showStatus('模板已删除！', 'success');
+                    
+                    // 刷新模板列表
+                    loadTemplateList();
+                    
+                    // 刷新编辑器模板
+                    loadTemplates();
+                } else {
+                    showStatus(`删除失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`删除模板失败: ${error.message}`, 'error');
+                console.error('删除模板出错:', error);
+            }
+        }
+        
+        // 搜索模板
+        function searchTemplates() {
+            const query = searchTemplate.value.toLowerCase();
+            const rows = templateTableBody.querySelectorAll('tr');
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                if (text.includes(query)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+        
+        // 绑定事件
+        document.addEventListener('DOMContentLoaded', function() {
+            // 加载模板
+            loadTemplates();
+            
+            // 加载模板列表
+            loadTemplateList();
+            
+            // 绑定标签页切换
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // 激活当前标签
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // 显示对应内容
+                    const tabId = this.dataset.tab;
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+            
+            // 刷新模板按钮
+            refreshBtn.addEventListener('click', loadTemplates);
+            
+            // 保存模板按钮
+            saveBtn.addEventListener('click', saveTemplates);
+            
+            // 重置模板按钮
+            resetBtn.addEventListener('click', resetTemplates);
+            
+            // 提交模板表单
+            templateForm.addEventListener('submit', submitTemplateForm);
+            
+            // 取消按钮
+            cancelTemplate.addEventListener('click', function() {
+                templateForm.reset();
+                editingTemplateId = null;
+                document.querySelector('.tab[data-tab="list"]').click();
+            });
+            
+            // 搜索模板
+            searchTemplate.addEventListener('input', searchTemplates);
+        });
+        
+        // 全局函数，供点击事件调用
+        window.editTemplate = editTemplate;
+        window.deleteTemplate = deleteTemplate;
+    </script>
+</body>
+</html> 
