@@ -23,6 +23,13 @@ from .models import APIEndpoint, APIKey
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render, redirect
 
+# 导入API入口点视图装饰器
+from .decorators import api_key_required
+
+# 导入用户认证相关模块
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+
 def index_view(request):
     """
     首页视图函数
@@ -56,6 +63,7 @@ def analyze_image(request):
         # 提取图像和查询
         image_base64 = data.get('image_base64')
         query = data.get('query')
+        template_type = data.get('template_type', 'general')  # 新增: 提示词模板类型
         
         # 验证必要字段
         if not image_base64:
@@ -69,7 +77,7 @@ def analyze_image(request):
             }, status=400)
         
         # 调用核心分析函数
-        result = analyze_image_core(image_base64, query)
+        result = analyze_image_core(image_base64, query, template_type)
         
         # 返回结果
         return JsonResponse(result)
@@ -99,6 +107,8 @@ def chat_completions(request):
         # 提取消息
         messages = data.get('messages', [])
         stream = data.get('stream', False)
+        template_type = data.get('template_type', 'general')  # 提示词模板类型
+        knowledge_search = data.get('knowledge_search', True)  # 是否使用知识库搜索
         
         # 验证必要字段
         if not messages:
@@ -106,8 +116,27 @@ def chat_completions(request):
                 'error': '缺少消息列表 (messages)'
             }, status=400)
         
+        # 尝试获取最后一条用户消息作为查询
+        query = None
+        for msg in reversed(messages):
+            if msg.get('role') == 'user':
+                query = msg.get('content', '')
+                break
+        
+        # 如果启用知识库搜索，先进行搜索
+        knowledge_content = ''
+        if knowledge_search and query:
+            # 使用向量搜索
+            vector_results = kb_vector_search(query, top_k=3)
+            if vector_results:
+                # 构建知识内容
+                knowledge_content = '\n\n'.join([
+                    f"来源: {item['knowledge_base']['name']}\n{item['content']}"
+                    for item in vector_results if item['similarity'] > 0.6  # 只使用相似度较高的结果
+                ])
+        
         # 调用核心聊天完成函数
-        result = chat_completion(messages, stream)
+        result = chat_completion(messages, stream, template_type, knowledge_content)
         
         # 处理流式响应（这里简化处理，实际应使用StreamingHttpResponse）
         if stream and 'stream' in result:
@@ -515,4 +544,262 @@ def api_test_execute(request):
         error_trace = traceback.format_exc()
         print(f"API测试错误: {str(e)}")
         print(error_trace)
-        return JsonResponse({'error': f'执行API测试时出错: {str(e)}'}, status=500) 
+        return JsonResponse({'error': f'执行API测试时出错: {str(e)}'}, status=500)
+
+@api_key_required
+def endpoints(request):
+    """获取所有API端点"""
+    # 获取所有API端点信息
+    api_endpoints = [
+        {
+            "id": 1,
+            "name": "聊天完成",
+            "path": "/api/v1/chat/completions",
+            "method": "POST",
+            "description": "发送消息到模型并获取聊天回复",
+            "request_schema": {
+                "messages": [
+                    {"role": "system", "content": "你是一个AI助手"},
+                    {"role": "user", "content": "你好，请介绍一下自己"}
+                ],
+                "stream": False,
+                "template_type": "general"
+            }
+        },
+        {
+            "id": 2,
+            "name": "分析图像",
+            "path": "/api/v1/analyze-image",
+            "method": "POST",
+            "description": "分析图像并获取描述",
+            "request_schema": {
+                "image_url": "https://example.com/image.jpg",
+                "prompt": "描述这张图片"
+            }
+        },
+        {
+            "id": 3,
+            "name": "知识库搜索",
+            "path": "/api/v1/knowledge/search",
+            "method": "POST",
+            "description": "在知识库中搜索相关内容",
+            "request_schema": {
+                "query": "如何使用知识库搜索功能?",
+                "kb_ids": [1, 2],
+                "limit": 5
+            }
+        },
+        {
+            "id": 4,
+            "name": "获取提示词模板",
+            "path": "/api/v1/templates/",
+            "method": "GET",
+            "description": "获取所有提示词模板"
+        },
+        {
+            "id": 5,
+            "name": "获取知识库列表",
+            "path": "/api/v1/knowledge/",
+            "method": "GET",
+            "description": "获取所有知识库"
+        }
+    ]
+    
+    return JsonResponse({"endpoints": api_endpoints})
+
+# 用户认证相关视图
+@csrf_exempt
+def user_login(request):
+    """用户登录API"""
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持POST请求'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return JsonResponse({'error': '用户名和密码不能为空'}, status=400)
+        
+        user = authenticate(username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            return JsonResponse({
+                'status': 'success',
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'is_staff': user.is_staff,
+                    'is_superuser': user.is_superuser,
+                    'last_login': user.last_login.strftime('%Y-%m-%d %H:%M:%S') if user.last_login else None,
+                }
+            })
+        else:
+            return JsonResponse({'error': '用户名或密码错误'}, status=401)
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '无效的JSON数据'}, status=400)
+
+@csrf_exempt
+def user_logout(request):
+    """用户退出登录API"""
+    logout(request)
+    return JsonResponse({'status': 'success', 'message': '退出登录成功'})
+
+@csrf_exempt
+def user_info(request):
+    """获取当前登录用户信息"""
+    if request.user.is_authenticated:
+        return JsonResponse({
+            'status': 'success',
+            'user': {
+                'id': request.user.id,
+                'username': request.user.username,
+                'email': request.user.email,
+                'is_staff': request.user.is_staff,
+                'is_superuser': request.user.is_superuser,
+                'last_login': request.user.last_login.strftime('%Y-%m-%d %H:%M:%S') if request.user.last_login else None,
+            }
+        })
+    else:
+        return JsonResponse({'status': 'error', 'message': '未登录'}, status=401)
+
+@csrf_exempt
+def user_list(request):
+    """获取用户列表（仅管理员可用）"""
+    if not request.user.is_authenticated or not request.user.is_staff:
+        return JsonResponse({'error': '无权限访问'}, status=403)
+    
+    users = User.objects.all().values('id', 'username', 'email', 'is_active', 'is_staff', 'date_joined', 'last_login')
+    users_list = list(users)
+    
+    # 格式化日期时间
+    for user in users_list:
+        if user['date_joined']:
+            user['date_joined'] = user['date_joined'].strftime('%Y-%m-%d %H:%M:%S')
+        if user['last_login']:
+            user['last_login'] = user['last_login'].strftime('%Y-%m-%d %H:%M:%S')
+    
+    return JsonResponse({'users': users_list})
+
+@csrf_exempt
+def user_create(request):
+    """创建用户（仅管理员可用）"""
+    if not request.user.is_authenticated or not request.user.is_staff:
+        return JsonResponse({'error': '无权限访问'}, status=403)
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持POST请求'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        email = data.get('email', '')
+        password = data.get('password')
+        is_staff = data.get('is_staff', False)
+        
+        if not username or not password:
+            return JsonResponse({'error': '用户名和密码不能为空'}, status=400)
+        
+        # 检查用户名是否已存在
+        if User.objects.filter(username=username).exists():
+            return JsonResponse({'error': '用户名已存在'}, status=400)
+        
+        # 创建用户
+        user = User.objects.create_user(username=username, email=email, password=password)
+        user.is_staff = is_staff
+        user.save()
+        
+        return JsonResponse({
+            'status': 'success',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'is_staff': user.is_staff,
+            }
+        })
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '无效的JSON数据'}, status=400)
+
+@csrf_exempt
+def user_update(request, user_id):
+    """更新用户信息（仅管理员可用）"""
+    if not request.user.is_authenticated or not request.user.is_staff:
+        return JsonResponse({'error': '无权限访问'}, status=403)
+    
+    if request.method != 'PUT' and request.method != 'PATCH':
+        return JsonResponse({'error': '仅支持PUT/PATCH请求'}, status=405)
+    
+    try:
+        # 获取要更新的用户
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return JsonResponse({'error': '用户不存在'}, status=404)
+        
+        data = json.loads(request.body)
+        
+        # 更新用户信息
+        if 'username' in data and data['username'] != user.username:
+            # 检查新用户名是否已存在
+            if User.objects.filter(username=data['username']).exists():
+                return JsonResponse({'error': '用户名已存在'}, status=400)
+            user.username = data['username']
+        
+        if 'email' in data:
+            user.email = data['email']
+        
+        if 'is_active' in data:
+            user.is_active = data['is_active']
+        
+        if 'is_staff' in data:
+            user.is_staff = data['is_staff']
+        
+        if 'password' in data and data['password']:
+            user.set_password(data['password'])
+        
+        user.save()
+        
+        return JsonResponse({
+            'status': 'success',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'is_active': user.is_active,
+                'is_staff': user.is_staff,
+                'last_login': user.last_login.strftime('%Y-%m-%d %H:%M:%S') if user.last_login else None,
+            }
+        })
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '无效的JSON数据'}, status=400)
+
+@csrf_exempt
+def user_delete(request, user_id):
+    """删除用户（仅管理员可用）"""
+    if not request.user.is_authenticated or not request.user.is_staff:
+        return JsonResponse({'error': '无权限访问'}, status=403)
+    
+    if request.method != 'DELETE':
+        return JsonResponse({'error': '仅支持DELETE请求'}, status=405)
+    
+    try:
+        user = User.objects.get(id=user_id)
+        
+        # 防止删除自己
+        if user.id == request.user.id:
+            return JsonResponse({'error': '不能删除当前登录的用户'}, status=400)
+        
+        username = user.username
+        user.delete()
+        
+        return JsonResponse({'status': 'success', 'message': f'用户 {username} 已删除'})
+    
+    except User.DoesNotExist:
+        return JsonResponse({'error': '用户不存在'}, status=404) 

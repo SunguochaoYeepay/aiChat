@@ -7,16 +7,20 @@ import time
 import logging
 from .model_service import get_model
 
+# 导入提示词管理器
+from management.prompt_manager import prompt_manager
+
 # 设置日志
 logger = logging.getLogger(__name__)
 
-def chat_completion(messages, stream=False):
+def chat_completion(messages, stream=False, prompt_type='general'):
     """
     生成聊天响应
     
     Args:
         messages: 聊天消息列表
         stream: 是否使用流式响应
+        prompt_type: 提示词模板类型
     
     Returns:
         dict: 包含响应内容的字典
@@ -62,7 +66,15 @@ def chat_completion(messages, stream=False):
                         ai_msg = messages[i+1].get("content", "")
                         history.append([user_msg, ai_msg])
             
-            prompt = current_msg
+            # 使用提示词模板构建最终提示词
+            prompt = prompt_manager.apply_chat_template(
+                query=current_msg,
+                history=history,
+                template_type=prompt_type
+            )
+            
+            # 记录提示词使用
+            logger.info(f"使用了{prompt_type}类型的聊天提示词模板")
         else:
             return {
                 "error": "消息列表为空",

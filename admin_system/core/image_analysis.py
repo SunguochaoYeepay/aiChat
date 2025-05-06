@@ -16,6 +16,9 @@ from pathlib import Path
 
 from .model_service import get_model
 
+# 导入提示词管理器
+from management.prompt_manager import prompt_manager
+
 # 字体设置
 FONT_PATH = "SimSun.ttf"
 FONT_SIZE = 15
@@ -152,13 +155,14 @@ def save_boxed_image(image, boxes):
         print(f"保存边界框图像时出错: {e}")
         return None
 
-def analyze_image(image_base64, query):
+def analyze_image(image_base64, query, template_type='general'):
     """
     分析图像并回答问题
     
     Args:
         image_base64: Base64编码的图像或图像列表
         query: 用户查询
+        template_type: 提示词模板类型
     
     Returns:
         dict: 包含分析结果和处理时间的字典
@@ -184,6 +188,13 @@ def analyze_image(image_base64, query):
                 "processing_time": "N/A",
                 "error": error_msg
             }
+        
+        # 使用提示词模板处理查询
+        prompt = prompt_manager.apply_image_analysis_template(
+            query=query,
+            template_type=template_type
+        )
+        print(f"使用了{template_type}类型的图像分析提示词模板")
         
         # 处理多张图片的情况
         if len(images) > 1:
@@ -298,8 +309,10 @@ def analyze_image(image_base64, query):
             }
             
     except Exception as e:
+        error_msg = f"处理图像或请求过程中出错: {str(e)}"
+        print(f"错误: {error_msg}")
         return {
-            "result": f"分析过程中出错: {str(e)}",
+            "result": error_msg,
             "processing_time": "N/A",
-            "error": str(e)
+            "error": error_msg
         } 
