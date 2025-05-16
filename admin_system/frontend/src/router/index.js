@@ -31,6 +31,13 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/api-management',
+    name: 'ApiManagement',
+    // 使用懒加载
+    component: () => import('../views/ApiManagement.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/services',
     name: 'ServiceManager',
     // 使用懒加载

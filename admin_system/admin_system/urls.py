@@ -18,12 +18,15 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from api.views import api_test_view
+from api.views import api_test_view, endpoints
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     # 添加API测试页面路由
     path('api/test/', api_test_view, name='api_test'),
+    
+    # 显式添加endpoints视图，解决路径不匹配问题
+    path('api/v1/endpoints', endpoints, name='api_endpoints_direct'),
     
     # 传统视图路由
     path('management/', include('management.urls')),

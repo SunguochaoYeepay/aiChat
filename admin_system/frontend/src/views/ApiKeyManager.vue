@@ -217,7 +217,7 @@ export default defineComponent({
       loading.value = true;
       try {
         const response = await getApiKeys();
-        apiKeys.value = response.data.api_keys;
+        apiKeys.value = response;
       } catch (error) {
         console.error('获取API密钥列表失败:', error);
         message.error('获取API密钥列表失败');
@@ -237,7 +237,7 @@ export default defineComponent({
       resetApiKeyForm();
       currentApiKeyId.value = apiKey.id;
       
-      apiKeyForm.name = apiKey.name;
+      apiKeyForm.name = apiKey.name || '';
       apiKeyForm.description = apiKey.description || '';
       apiKeyForm.expires_at = apiKey.expires_at ? new Date(apiKey.expires_at) : null;
       apiKeyForm.allowed_ips = apiKey.allowed_ips || '';
@@ -261,7 +261,7 @@ export default defineComponent({
     // 创建API密钥
     const handleCreateApiKey = async () => {
       try {
-        await createFormRef.value.validate();
+        await createFormRef.value?.validate();
         modalLoading.value = true;
         
         const formData = {
@@ -306,7 +306,7 @@ export default defineComponent({
     // 更新API密钥
     const handleUpdateApiKey = async () => {
       try {
-        await editFormRef.value.validate();
+        await editFormRef.value?.validate();
         modalLoading.value = true;
         
         const formData = {
@@ -327,11 +327,13 @@ export default defineComponent({
           formData.rate_limit_override = apiKeyForm.rate_limit_override;
         }
         
-        await updateApiKey(currentApiKeyId.value, formData);
-        
-        message.success('更新API密钥成功');
-        editModalVisible.value = false;
-        fetchApiKeys(); // 刷新API密钥列表
+        if (currentApiKeyId.value) {
+          await updateApiKey(currentApiKeyId.value, formData);
+          
+          message.success('更新API密钥成功');
+          editModalVisible.value = false;
+          fetchApiKeys(); // 刷新API密钥列表
+        }
       } catch (error) {
         if (error.response && error.response.data) {
           message.error(error.response.data.error || '更新API密钥失败');
@@ -347,7 +349,7 @@ export default defineComponent({
     };
     
     // 删除API密钥
-    const deleteApiKey = async (apiKey) => {
+    const handleDeleteApiKey = async (apiKey) => {
       loading.value = true;
       try {
         await deleteApiKey(apiKey.id);
@@ -401,7 +403,7 @@ export default defineComponent({
       showEditModal,
       handleCreateApiKey,
       handleUpdateApiKey,
-      deleteApiKey,
+      deleteApiKey: handleDeleteApiKey,
       copyApiKey,
       handleApiKeyCopied
     };

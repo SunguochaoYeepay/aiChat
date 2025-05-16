@@ -30,6 +30,9 @@ from .decorators import api_key_required
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 
+# 导入登录验证装饰器
+from django.contrib.auth.decorators import login_required
+
 def index_view(request):
     """
     首页视图函数
@@ -136,7 +139,7 @@ def chat_completions(request):
                 ])
         
         # 调用核心聊天完成函数
-        result = chat_completion(messages, stream, template_type, knowledge_content)
+        result = chat_completion(messages, stream, template_type)
         
         # 处理流式响应（这里简化处理，实际应使用StreamingHttpResponse）
         if stream and 'stream' in result:
@@ -485,8 +488,9 @@ def api_test_execute(request):
             'Accept': 'application/json'
         }
         
-        # 完全忽略API密钥要求，简化测试流程
-        # 不再添加X-API-Key头
+        # 添加API密钥，如果有的话
+        if api_key:
+            headers['X-API-Key'] = api_key
         
         # 确定请求URL
         base_url = f"{request.scheme}://{request.get_host()}"
@@ -504,38 +508,62 @@ def api_test_execute(request):
         print(f"Headers: {headers}")
         print(f"Request data: {request_data}")
         
+        # 记录请求开始时间
+        import time
+        start_time = time.time()
+        
         # 发送请求
         import requests
         
         try:
+            # 增加超时时间从10秒到30秒
             if endpoint.method == 'GET':
-                response = requests.get(api_url, params=request_data, headers=headers, timeout=10)
+                response = requests.get(api_url, params=request_data, headers=headers, timeout=30)
             elif endpoint.method == 'POST':
-                response = requests.post(api_url, json=request_data, headers=headers, timeout=10)
+                response = requests.post(api_url, json=request_data, headers=headers, timeout=30)
             elif endpoint.method == 'PUT':
-                response = requests.put(api_url, json=request_data, headers=headers, timeout=10)
+                response = requests.put(api_url, json=request_data, headers=headers, timeout=30)
             elif endpoint.method == 'DELETE':
-                response = requests.delete(api_url, json=request_data, headers=headers, timeout=10)
+                response = requests.delete(api_url, json=request_data, headers=headers, timeout=30)
             else:
                 return JsonResponse({'error': f'不支持的请求方法: {endpoint.method}'}, status=400)
         except requests.exceptions.RequestException as req_err:
-            return JsonResponse({'error': f'请求错误: {str(req_err)}'}, status=500)
+            return JsonResponse({
+                'status_code': 500,
+                'response_data': {'error': f'请求错误: {str(req_err)}'},
+                'response_time': int((time.time() - start_time) * 1000),
+                'headers': {}
+            }, status=200)  # 返回200状态码但内部包含错误信息
+        
+        # 计算响应时间（毫秒）
+        response_time = int((time.time() - start_time) * 1000)
         
         # 打印响应状态和头信息，便于调试
         print(f"Response status: {response.status_code}")
         print(f"Response headers: {response.headers}")
+        print(f"Response time: {response_time}ms")
         
-        # 返回响应
+        # 处理返回的headers
+        response_headers = {}
+        for key, value in response.headers.items():
+            response_headers[key] = value
+        
+        # 构建统一的响应格式
+        test_response = {
+            'status_code': response.status_code,
+            'response_time': response_time,
+            'headers': response_headers,
+        }
+        
+        # 尝试解析响应内容
         try:
-            response_json = response.json()
-            return JsonResponse(response_json, status=response.status_code, safe=False)
-        except Exception as content_error:
-            # 如果不是JSON响应，返回文本
-            try:
-                return HttpResponse(response.text, status=response.status_code, 
-                                  content_type=response.headers.get('Content-Type', 'text/plain'))
-            except:
-                return HttpResponse(f"无法解析响应内容", status=500)
+            test_response['response_data'] = response.json()
+        except Exception:
+            # 如果不是JSON，返回文本
+            test_response['response_data'] = response.text
+        
+        # 返回测试结果，始终使用200状态码
+        return JsonResponse(test_response, safe=False)
         
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的请求JSON格式'}, status=400)
@@ -546,66 +574,60 @@ def api_test_execute(request):
         print(error_trace)
         return JsonResponse({'error': f'执行API测试时出错: {str(e)}'}, status=500)
 
-@api_key_required
+# 不需要任何身份验证
 def endpoints(request):
     """获取所有API端点"""
-    # 获取所有API端点信息
-    api_endpoints = [
-        {
-            "id": 1,
-            "name": "聊天完成",
-            "path": "/api/v1/chat/completions",
-            "method": "POST",
-            "description": "发送消息到模型并获取聊天回复",
-            "request_schema": {
-                "messages": [
-                    {"role": "system", "content": "你是一个AI助手"},
-                    {"role": "user", "content": "你好，请介绍一下自己"}
-                ],
-                "stream": False,
-                "template_type": "general"
-            }
-        },
-        {
-            "id": 2,
-            "name": "分析图像",
-            "path": "/api/v1/analyze-image",
-            "method": "POST",
-            "description": "分析图像并获取描述",
-            "request_schema": {
-                "image_url": "https://example.com/image.jpg",
-                "prompt": "描述这张图片"
-            }
-        },
-        {
-            "id": 3,
-            "name": "知识库搜索",
-            "path": "/api/v1/knowledge/search",
-            "method": "POST",
-            "description": "在知识库中搜索相关内容",
-            "request_schema": {
-                "query": "如何使用知识库搜索功能?",
-                "kb_ids": [1, 2],
-                "limit": 5
-            }
-        },
-        {
-            "id": 4,
-            "name": "获取提示词模板",
-            "path": "/api/v1/templates/",
-            "method": "GET",
-            "description": "获取所有提示词模板"
-        },
-        {
-            "id": 5,
-            "name": "获取知识库列表",
-            "path": "/api/v1/knowledge/",
-            "method": "GET",
-            "description": "获取所有知识库"
-        }
-    ]
+    print("====== 收到API端点列表请求 ======")
+    print(f"请求方法: {request.method}")
+    print(f"请求头: {request.headers}")
     
-    return JsonResponse({"endpoints": api_endpoints})
+    # 获取所有API端点信息
+    endpoints_list = APIEndpoint.objects.all()
+    print(f"查询到 {endpoints_list.count()} 个API端点")
+    
+    # 将查询结果转换为JSON格式
+    api_endpoints = []
+    for endpoint in endpoints_list:
+        api_endpoints.append({
+            "id": endpoint.id,
+            "name": endpoint.name,
+            "path": endpoint.path,
+            "method": endpoint.method,
+            "description": endpoint.description,
+            "status": endpoint.status,
+            "permission": endpoint.permission,
+            "request_schema": endpoint.request_schema,
+            "response_schema": endpoint.response_schema,
+            "version": endpoint.version,
+            "rate_limit": endpoint.rate_limit,
+            "created_at": endpoint.created_at.isoformat() if endpoint.created_at else None,
+            "updated_at": endpoint.updated_at.isoformat() if endpoint.updated_at else None,
+        })
+    
+    # 如果没有端点，添加一个示例端点以便于调试
+    if not api_endpoints:
+        print("警告：没有找到API端点，添加示例端点")
+        api_endpoints.append({
+            "id": 0,
+            "name": "示例API端点",
+            "path": "/api/example",
+            "method": "GET",
+            "description": "这是一个示例API端点，用于调试",
+            "status": "active",
+            "permission": "public",
+            "request_schema": {},
+            "response_schema": {},
+            "version": "1.0",
+            "rate_limit": 60,
+            "created_at": None,
+            "updated_at": None,
+        })
+    
+    response_data = {"endpoints": api_endpoints}
+    print(f"返回 {len(api_endpoints)} 个API端点")
+    print("====== API端点列表请求处理完成 ======")
+    
+    return JsonResponse(response_data)
 
 # 用户认证相关视图
 @csrf_exempt
@@ -802,4 +824,178 @@ def user_delete(request, user_id):
         return JsonResponse({'status': 'success', 'message': f'用户 {username} 已删除'})
     
     except User.DoesNotExist:
-        return JsonResponse({'error': '用户不存在'}, status=404) 
+        return JsonResponse({'error': '用户不存在'}, status=404)
+
+@csrf_exempt
+@staff_member_required
+def create_endpoint(request):
+    """
+    创建新的API端点
+    
+    允许管理员创建新的API接口端点
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持POST请求'}, status=405)
+    
+    try:
+        # 解析请求数据
+        data = json.loads(request.body)
+        
+        # 验证必要字段
+        required_fields = ['name', 'path', 'method']
+        for field in required_fields:
+            if field not in data:
+                return JsonResponse({'error': f'缺少必要字段: {field}'}, status=400)
+        
+        # 检查路径和方法组合是否已存在
+        existing = APIEndpoint.objects.filter(
+            path=data.get('path'), 
+            method=data.get('method'),
+            version=data.get('version', '1.0')
+        ).first()
+        
+        if existing:
+            return JsonResponse({
+                'error': f"API端点已存在: {data.get('method')} {data.get('path')}"
+            }, status=400)
+        
+        # 创建新的API端点
+        endpoint = APIEndpoint(
+            name=data.get('name'),
+            path=data.get('path'),
+            method=data.get('method'),
+            description=data.get('description', ''),
+            status=data.get('status', 'active'),
+            permission=data.get('permission', 'authenticated'),
+            request_schema=data.get('request_schema', {}),
+            response_schema=data.get('response_schema', {}),
+            version=data.get('version', '1.0'),
+            rate_limit=data.get('rate_limit', 60)
+        )
+        endpoint.save()
+        
+        return JsonResponse({
+            'id': endpoint.id,
+            'name': endpoint.name,
+            'path': endpoint.path,
+            'method': endpoint.method,
+            'description': endpoint.description,
+            'status': endpoint.status,
+            'permission': endpoint.permission,
+            'request_schema': endpoint.request_schema,
+            'response_schema': endpoint.response_schema,
+            'version': endpoint.version,
+            'created_at': endpoint.created_at.isoformat(),
+        }, status=201)
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '无效的JSON格式'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'创建API端点时出错: {str(e)}'}, status=500)
+
+@csrf_exempt
+@staff_member_required
+def update_endpoint(request, endpoint_id):
+    """
+    更新API端点
+    
+    允许管理员更新现有的API接口端点
+    """
+    if request.method != 'PUT':
+        return JsonResponse({'error': '仅支持PUT请求'}, status=405)
+    
+    try:
+        # 获取要更新的端点
+        try:
+            endpoint = APIEndpoint.objects.get(pk=endpoint_id)
+        except APIEndpoint.DoesNotExist:
+            return JsonResponse({'error': '找不到指定的API端点'}, status=404)
+        
+        # 解析请求数据
+        data = json.loads(request.body)
+        
+        # 更新字段
+        if 'name' in data:
+            endpoint.name = data['name']
+        if 'path' in data:
+            endpoint.path = data['path']
+        if 'method' in data:
+            endpoint.method = data['method']
+        if 'description' in data:
+            endpoint.description = data['description']
+        if 'status' in data:
+            endpoint.status = data['status']
+        if 'permission' in data:
+            endpoint.permission = data['permission']
+        if 'request_schema' in data:
+            endpoint.request_schema = data['request_schema']
+        if 'response_schema' in data:
+            endpoint.response_schema = data['response_schema']
+        if 'version' in data:
+            endpoint.version = data['version']
+        if 'rate_limit' in data:
+            endpoint.rate_limit = data['rate_limit']
+        
+        # 检查路径和方法组合是否与其他端点冲突
+        conflicting = APIEndpoint.objects.filter(
+            path=endpoint.path, 
+            method=endpoint.method,
+            version=endpoint.version
+        ).exclude(pk=endpoint_id).first()
+        
+        if conflicting:
+            return JsonResponse({
+                'error': f"路径和方法组合与现有API端点冲突: {endpoint.method} {endpoint.path}"
+            }, status=400)
+        
+        # 保存更新
+        endpoint.save()
+        
+        return JsonResponse({
+            'id': endpoint.id,
+            'name': endpoint.name,
+            'path': endpoint.path,
+            'method': endpoint.method,
+            'description': endpoint.description,
+            'status': endpoint.status,
+            'permission': endpoint.permission,
+            'request_schema': endpoint.request_schema,
+            'response_schema': endpoint.response_schema,
+            'version': endpoint.version,
+            'updated_at': endpoint.updated_at.isoformat(),
+        })
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '无效的JSON格式'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'更新API端点时出错: {str(e)}'}, status=500)
+
+@csrf_exempt
+@staff_member_required
+def delete_endpoint(request, endpoint_id):
+    """
+    删除API端点
+    
+    允许管理员删除API接口端点
+    """
+    if request.method != 'DELETE':
+        return JsonResponse({'error': '仅支持DELETE请求'}, status=405)
+    
+    try:
+        # 获取要删除的端点
+        try:
+            endpoint = APIEndpoint.objects.get(pk=endpoint_id)
+        except APIEndpoint.DoesNotExist:
+            return JsonResponse({'error': '找不到指定的API端点'}, status=404)
+        
+        # 删除端点
+        endpoint_name = endpoint.name
+        endpoint.delete()
+        
+        return JsonResponse({
+            'message': f'API端点已成功删除: {endpoint_name}',
+            'id': endpoint_id
+        })
+    
+    except Exception as e:
+        return JsonResponse({'error': f'删除API端点时出错: {str(e)}'}, status=500) 

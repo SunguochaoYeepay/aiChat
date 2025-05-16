@@ -29,6 +29,11 @@ urlpatterns = [
     path('v1/endpoints', views.endpoints, name='api_endpoints'),
     path('v1/api-keys', api_key_views.api_keys, name='api_keys'),
     
+    # API端点管理接口
+    path('v1/endpoints/create', views.create_endpoint, name='create_endpoint'),
+    path('v1/endpoints/<int:endpoint_id>/update', views.update_endpoint, name='update_endpoint'),
+    path('v1/endpoints/<int:endpoint_id>/delete', views.delete_endpoint, name='delete_endpoint'),
+    
     # API密钥管理接口
     path('v1/api-keys/create', api_key_views.create_api_key, name='create_api_key'),
     path('v1/api-keys/<int:key_id>/update', api_key_views.update_api_key, name='update_api_key'),

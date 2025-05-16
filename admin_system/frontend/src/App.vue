@@ -61,10 +61,20 @@
           </a-menu-item>
         </a-sub-menu>
         
-        <a-menu-item key="api-test">
+        <a-sub-menu key="api-management-menu">
           <template #icon><code-outlined /></template>
-          <router-link to="/api">API测试</router-link>
-        </a-menu-item>
+          <template #title>API 管理</template>
+          
+          <a-menu-item key="api-test">
+            <template #icon><experiment-outlined /></template>
+            <router-link to="/api">API测试</router-link>
+          </a-menu-item>
+          
+          <a-menu-item key="api-management" v-if="isAdmin">
+            <template #icon><api-outlined /></template>
+            <router-link to="/api-management">API接口管理</router-link>
+          </a-menu-item>
+        </a-sub-menu>
       </a-menu>
     </a-layout-sider>
     
@@ -185,6 +195,8 @@ export default defineComponent({
         selectedKeys.value = ['api-keys'];
       } else if (path === '/api') {
         selectedKeys.value = ['api-test'];
+      } else if (path === '/api-management') {
+        selectedKeys.value = ['api-management'];
       }
     };
     

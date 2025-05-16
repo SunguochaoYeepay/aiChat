@@ -12,7 +12,11 @@ module.exports = defineConfig({
       '/api': {
         target: 'http://localhost:8000',  // Django 后端地址
         ws: true,
-        changeOrigin: true
+        changeOrigin: true,
+        logLevel: 'debug',     // 添加日志级别，方便调试
+        pathRewrite: {
+          '^/api': '/api'      // 不做路径重写，保持原始路径
+        }
       }
     }
   },
@@ -24,7 +28,9 @@ module.exports = defineConfig({
     // 配置Vue的Feature flag
     config.plugin('define').tap((definitions) => {
       Object.assign(definitions[0]['process.env'], {
-        __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false'
+        __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
+        // API URL环境变量，使用'/api'作为基础URL
+        VUE_APP_API_URL: '"/api"',  // 设为/api，这样API请求函数中就不需要再加/api前缀
       });
       return definitions;
     });
